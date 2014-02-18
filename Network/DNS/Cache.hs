@@ -82,10 +82,10 @@ resolve cache seeds dom = bracket setup teardown body
     teardown _ = decrease cache
     body _ = concResolv seeds dom
 
-wait :: DNSCache -> IO ()
-wait (DNSCache _ lvar lim _) = atomically $ do
+wait :: DNSCache -> Wait
+wait (DNSCache _ lvar _ _) cond = atomically $ do
     x <- readTVar lvar
-    check (x < lim)
+    check (cond x)
 
 waitIncrease :: DNSCache -> IO ()
 waitIncrease (DNSCache _ lvar lim _) = atomically $ do

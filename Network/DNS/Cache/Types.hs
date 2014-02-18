@@ -34,7 +34,7 @@ data DNSCacheConf = DNSCacheConf {
   }
 
 type Lookup = Domain -> IO (Either DNS.DNSError IPv4)
-type Wait = IO ()
+type Wait = (Int -> Bool) -> IO ()
 
 data DNSCache = DNSCache {
     cacheref :: IORef (PSQ Key Value)
