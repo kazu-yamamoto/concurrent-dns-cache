@@ -23,12 +23,10 @@ main = withDNSCache conf loop
            Left (SomeException _) -> do
                wait (== 0)
                putStrLn "Done."
-           Right dom
-             | sanityCheck dom -> do
-                 wait (< maxConn)
-                 void $ forkIO (lkup dom >>= print)
-                 loop lkup wait
-             | otherwise -> loop lkup wait
+           Right dom -> do
+               wait (< maxConn)
+               void $ forkIO (lkup dom >>= print)
+               loop lkup wait
 
 sanityCheck :: Domain -> Bool
 sanityCheck "" = False
