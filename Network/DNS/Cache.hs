@@ -50,7 +50,7 @@ data Result = Hit IPv4
             | Resolved IPv4
             | Numeric IPv4
             | IllegalDomain
-            | EmptyBody
+            | NoA
             | SeqMismatch
             | Timeout
             | Broken
