@@ -17,9 +17,9 @@ import Control.Monad (forever, void)
 import Data.Array
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Short as B
+import Data.Char (isDigit)
 import Data.Hashable (hash)
-import Data.IORef (IORef)
-import Data.IORef (newIORef, readIORef, atomicModifyIORef')
+import Data.IORef (newIORef, readIORef, atomicModifyIORef', IORef)
 import Data.IP (IPv4)
 import Data.Time (getCurrentTime, addUTCTime, NominalDiffTime)
 import Network.BSD (HostName)
@@ -34,6 +34,8 @@ data DNSCacheConf = DNSCacheConf {
     dnsServers :: [HostName]
   , maxConcurrency :: Int
   , lifeTime :: NominalDiffTime
+  -- fixme timeout for dns lib
+  -- fixme retries for dns lib
   }
 
 data DNSCache = DNSCache {
@@ -46,7 +48,7 @@ data DNSCache = DNSCache {
 data Result = Hit IPv4
             | Resolved IPv4
             | Numeric IPv4
-            | IllegalDomain Domain
+            | IllegalDomain
             | EmptyBody
             | SeqMismatch
             | Timeout
@@ -78,7 +80,7 @@ makeSeeds ips = mapM (makeResolvSeed . toConf) ips
 
 lookupHostAddress :: DNSCache -> [ResolvSeed] -> Lookup
 lookupHostAddress _     _     dom
-  | isIllegal dom                 = return $ IllegalDomain dom
+  | isIllegal dom                 = return IllegalDomain
   | isIPAddr dom                  = return $ Numeric $ read $ BS.unpack dom
 lookupHostAddress cache seeds dom = do
     psq <- readIORef cref
@@ -183,5 +185,5 @@ isIPAddr hn = length groups == 4 && all ip groups
   where
     groups = BS.split '.' hn
     ip x = BS.length x <= 3
-        && BS.all (\ e -> e >= '0' && e <= '9') x
+        && BS.all isDigit x
         && read (BS.unpack x) <= (255 :: Int)

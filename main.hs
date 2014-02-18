@@ -3,11 +3,10 @@
 module Main where
 
 import Control.Concurrent (forkIO)
+import Control.Exception (try, SomeException(..))
 import Control.Monad (void)
 import qualified Data.ByteString.Char8 as BS
-import Network.DNS (Domain)
 import Network.DNS.Cache
-import Control.Exception (try, SomeException(..))
 
 maxConn :: Int
 maxConn = 200
@@ -25,23 +24,8 @@ main = withDNSCache conf loop
                putStrLn "Done."
            Right dom -> do
                wait (< maxConn)
-               void $ forkIO (lkup dom >>= print)
+               void $ forkIO (lkup dom >>= p dom)
                loop lkup wait
-
-sanityCheck :: Domain -> Bool
-sanityCheck "" = False
-sanityCheck dom
-  | ':' `BS.elem` dom           = False
-  | '/' `BS.elem` dom           = False
-  | BS.length dom > 253         = False
-  | any (\x -> BS.length x > 63) (BS.split '.' dom) = False
-  | isIPAddr dom                = False
-sanityCheck _ = True
-
-isIPAddr :: Domain -> Bool
-isIPAddr hn = length groups == 4 && all ip groups
-  where
-    groups = BS.split '.' hn
-    ip x = BS.length x <= 3
-        && BS.all (\ e -> e >= '0' && e <= '9') x
-        && read (BS.unpack x) <= (255 :: Int)
+   p dom r = do
+       putStr $ show r ++ " "
+       BS.putStrLn dom
