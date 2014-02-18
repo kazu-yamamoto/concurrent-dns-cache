@@ -35,7 +35,6 @@ main = do
    p _  (Hit _)       = return ()
    p _  (Resolved _)  = return ()
    p _  (Numeric _)   = return ()
-   p _  (Hit _)       = return ()
    p _  IllegalDomain = return ()
    p dom r = do
        putStr $ show r ++ " "
