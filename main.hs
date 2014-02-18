@@ -10,7 +10,7 @@ import Network.DNS.Cache
 import Data.Time
 
 maxConn :: Int
-maxConn = 200
+maxConn = 50
 
 main :: IO ()
 main = do
