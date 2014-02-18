@@ -95,7 +95,7 @@ lookupHostAddress cache seeds dom = do
             x <- resolve cache seeds dom
             case x of
                 Left e           -> return $ toError e
-                Right []         -> return EmptyBody
+                Right []         -> return NoA
                 Right ips@(ip:_) -> do
                     !val <- newValue ips
                     tim <- addUTCTime lf <$> getCurrentTime
