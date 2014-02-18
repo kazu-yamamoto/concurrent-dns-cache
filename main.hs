@@ -32,10 +32,7 @@ main = do
                wait (< maxConn)
                void $ forkIO (lkup dom >>= p dom)
                loop (n+1) beg lkup wait
-   p _  (Hit _)       = return ()
-   p _  (Resolved _)  = return ()
-   p _  (Numeric _)   = return ()
-   p _  IllegalDomain = return ()
-   p dom r = do
-       putStr $ show r ++ " "
+   p _   (Right _) = return ()
+   p dom (Left  e) = do
+       putStr $ show e ++ " "
        BS.putStrLn dom
