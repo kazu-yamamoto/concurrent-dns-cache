@@ -19,3 +19,4 @@ main = withDNSCache conf loop
          else do
            wait
            void $ forkIO (lkup dom >>= print)
+           loop lkup wait
