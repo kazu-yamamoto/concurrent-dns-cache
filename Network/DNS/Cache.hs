@@ -5,6 +5,7 @@ module Network.DNS.Cache (
     DNSCacheConf(..)
   , Lookup
   , Wait
+  , Result(..)
   , withDNSCache
   ) where
 
