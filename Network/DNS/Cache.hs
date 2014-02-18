@@ -3,7 +3,7 @@
 module Network.DNS.Cache where
 
 import Control.Concurrent.Async (async, waitAnyCancel)
-import Control.Concurrent.STM (newTVarIO, atomically, TVar, readTVar, writeTVar, retry, modifyTVar')
+import Control.Concurrent.STM (newTVarIO, atomically, TVar, readTVar, writeTVar, modifyTVar', check)
 import Control.Exception (bracket)
 import Data.IORef (newIORef, readIORef, atomicModifyIORef')
 import Data.IP (IPv4)
@@ -35,9 +35,6 @@ makeSeeds ips = mapM (makeResolvSeed . toConf) ips
 
 lookupHostAddress :: DNSCache -> Limit -> [ResolvSeed] -> Lookup
 lookupHostAddress (DNSCache cacheref) lim seeds dom = do
-    let k = B.toShort dom
-        h = hash dom
-        key = Key h k
     psq <- readIORef cacheref
     case PSQ.lookup key psq of
         Just (Value _ a ref) -> do
@@ -47,44 +44,56 @@ lookupHostAddress (DNSCache cacheref) lim seeds dom = do
             let !addr = a ! j
             return $ Right addr
         Nothing -> do
-            x <- tryResolve lim seeds dom
+            x <- resolve lim seeds dom
             case x of
-                Left e    -> return $ Left e
-                Right []  -> return $ Left UnexpectedRDATA
-                Right ips -> do
-                    let siz = length ips
-                        !next = adjust 0 siz
-                    ref <- newIORef next
-                    tim <- getCurrentTime
-                    let tim' = addUTCTime 300 tim -- fixme
-                        arr = listArray (0,siz-1) ips
-                        val = Value tim' arr ref
-                        ip = head ips
-                    atomicModifyIORef' cacheref $ \c -> (PSQ.insert key val c, ())
+                Left e           -> return $ Left e
+                Right []         -> return $ Left UnexpectedRDATA
+                Right ips@(ip:_) -> do
+                    let !val = newValue ips
+                    atomicModifyIORef' cacheref $
+                        \q -> (PSQ.insert key val q, ())
                     return $ Right ip
+  where
+    !k = B.toShort dom
+    !h = hash dom
+    !key = Key h k
+
+newValue :: [IPv4] -> IO Value
+newValue ips = do
+    ref <- newIORef next
+    tim <- getCurrentTime
+    let !tim' = addUTCTime 300 tim -- fixme
+    return $! Value tim' arr ref
+  where
+    !siz = length ips
+    !next = adjust 0 siz
+    !arr = listArray (0,siz-1) ips
 
 adjust :: Int -> Int -> Int
 adjust i 0 = i
-adjust i n = (i + 1) `mod` n
+adjust i n = let !x = (i + 1) `mod` n in x
 
-tryResolve :: Limit -> [ResolvSeed] -> Domain -> IO (Either DNSError [IPv4])
-tryResolve lim seeds dom = bracket setup teardown body
+resolve :: Limit -> [ResolvSeed] -> Domain -> IO (Either DNSError [IPv4])
+resolve lim seeds dom = bracket setup teardown body
   where
-    setup = wait lim 200 -- fixme
-    teardown _ = release lim
+    setup = waitIncrease lim 200 -- fixme
+    teardown _ = decrease lim
     body _ = concResolv seeds dom
 
 wait :: Limit -> Int -> IO ()
 wait (Limit limvar) limit = atomically $ do
     x <- readTVar limvar
-    if x < limit then do
-        let !x' = x + 1
-        writeTVar limvar x'
-      else
-        retry
+    check (x < limit)
 
-release :: Limit -> IO ()
-release (Limit limvar) = atomically $ modifyTVar' limvar (subtract 1)
+waitIncrease :: Limit -> Int -> IO ()
+waitIncrease (Limit limvar) limit = atomically $ do
+    x <- readTVar limvar
+    check (x < limit)
+    let !x' = x + 1
+    writeTVar limvar x'
+
+decrease :: Limit -> IO ()
+decrease (Limit limvar) = atomically $ modifyTVar' limvar (subtract 1)
 
 concResolv :: [ResolvSeed] -> Domain -> IO (Either DNSError [IPv4])
 concResolv seeds dom = withResolvers seeds $ \resolvers -> do
