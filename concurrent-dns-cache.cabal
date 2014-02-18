@@ -1,0 +1,43 @@
+Name:                   concurrent-dns-cache
+Version:                0.0.0
+Author:                 Kazu Yamamoto <kazu@iij.ad.jp>
+Maintainer:             Kazu Yamamoto <kazu@iij.ad.jp>
+License:                BSD3
+License-File:           LICENSE
+Synopsis:               Concurrent DNS cache
+Description:            Concurrent DNS cache
+Category:               Network
+Cabal-Version:          >= 1.10
+Build-Type:             Simple
+
+Library
+  Default-Language:     Haskell2010
+  GHC-Options:          -Wall
+  Exposed-Modules:      Network.DNS.Cache
+  Build-Depends:        base >= 4 && < 5
+                      , bytestring >= 0.10.4.0
+                      , dns
+                      , iproute
+                      , network
+                      , stm
+                      , async
+                      , array
+                      , PSQueue
+                      , time
+                      , hashable
+
+Executable main
+  Main-Is:              main.hs
+  Default-Language:     Haskell2010
+  GHC-Options:          -Wall -threaded
+  Build-Depends:        base >= 4 && < 5
+                      , bytestring >= 0.10.4.0
+                      , dns
+                      , iproute
+                      , network
+                      , stm
+                      , async
+                      , array
+                      , PSQueue
+                      , time
+                      , hashable
