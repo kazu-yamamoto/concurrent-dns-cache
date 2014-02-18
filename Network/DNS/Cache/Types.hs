@@ -1,15 +1,16 @@
 module Network.DNS.Cache.Types where
 
+import Control.Concurrent.STM (TVar)
 import Data.Array (Array)
 import Data.ByteString.Short (ShortByteString)
 import Data.IORef (IORef)
+import Data.IP
 import Data.PSQueue (PSQ)
-import Data.Time.Clock (UTCTime)
+import Data.Time.Clock (UTCTime, NominalDiffTime)
 import Network.BSD (HostName)
 import Network.DNS (Domain)
-import qualified Network.DNS as DNS
 -- import Network.Socket (HostAddress)
-import Data.IP
+import qualified Network.DNS as DNS
 
 type Hash = Int
 
@@ -26,12 +27,18 @@ instance Eq Value where
 instance Ord Value where
     Value t1 _ _ `compare` Value t2 _ _ = t1 `compare` t2
 
-data DNSCache = DNSCache (IORef (PSQ Key Value))
-
 data DNSCacheConf = DNSCacheConf {
     dnsServers :: [HostName]
   , maxConcurrency :: Int
-  , lifeTime :: Int
+  , lifeTime :: NominalDiffTime
   }
 
 type Lookup = Domain -> IO (Either DNS.DNSError IPv4)
+type Wait = IO ()
+
+data DNSCache = DNSCache {
+    cacheref :: IORef (PSQ Key Value)
+  , limvar :: TVar Int
+  , limit :: Int
+  , life :: NominalDiffTime
+  }
