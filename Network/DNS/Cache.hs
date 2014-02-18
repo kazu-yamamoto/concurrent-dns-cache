@@ -174,6 +174,7 @@ prune cref = forever $ do
 isIllegal :: Domain -> Bool
 isIllegal ""                    = True
 isIllegal dom
+  | '.' `BS.notElem` dom        = True
   | ':' `BS.elem` dom           = True
   | '/' `BS.elem` dom           = True
   | BS.length dom > 253         = True
