@@ -22,7 +22,7 @@ main = do
    loop n beg lkup wait = do
        when (n `mod` 1000 == 0) $ do
            cur <- getCurrentTime
-           print (cur `diffUTCTime` beg)
+           putStrLn $ show n ++ ": " ++ show (cur `diffUTCTime` beg)
        edom <- try BS.getLine
        case edom of
            Left (SomeException _) -> do
