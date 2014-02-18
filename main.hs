@@ -15,7 +15,7 @@ main = withDNSCache conf loop
    loop lkup wait = do
        dom <- BS.getLine
        if dom == "" then
-           return ()
+           putStrLn "Done."
          else do
            wait
            void $ forkIO (lkup dom >>= print)
