@@ -14,6 +14,8 @@ Library
   Default-Language:     Haskell2010
   GHC-Options:          -Wall
   Exposed-Modules:      Network.DNS.Cache
+  Other-Modules:        Network.DNS.Cache.Types
+                        Network.DNS.Cache.PSQ
   Build-Depends:        base >= 4 && < 5
                       , bytestring >= 0.10.4.0
                       , dns
@@ -22,7 +24,6 @@ Library
                       , stm
                       , async
                       , array
-                      , PSQueue
                       , time
                       , hashable
 
@@ -38,6 +39,5 @@ Executable main
                       , stm
                       , async
                       , array
-                      , PSQueue
                       , time
                       , hashable

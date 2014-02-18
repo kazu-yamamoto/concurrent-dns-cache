@@ -7,19 +7,44 @@ module Network.DNS.Cache (
   , withDNSCache
   ) where
 
+import Control.Applicative ((<$>))
+import Control.Concurrent (threadDelay, forkIO)
 import Control.Concurrent.Async (async, waitAnyCancel)
-import Control.Concurrent.STM (newTVarIO, atomically, readTVar, writeTVar, modifyTVar', check)
+import Control.Concurrent.STM (newTVarIO, atomically, readTVar, writeTVar, modifyTVar', check, TVar)
 import Control.Exception (bracket)
+import Control.Monad (forever, void)
 import Data.Array
 import qualified Data.ByteString.Short as B
 import Data.Hashable (hash)
+import Data.IORef (IORef)
 import Data.IORef (newIORef, readIORef, atomicModifyIORef')
 import Data.IP (IPv4)
-import Data.Time.Clock (getCurrentTime, addUTCTime)
+import Data.Time (getCurrentTime, addUTCTime, NominalDiffTime)
 import Network.BSD (HostName)
 import Network.DNS
+import Network.DNS.Cache.PSQ (PSQ)
+import qualified Network.DNS.Cache.PSQ as PSQ
 import Network.DNS.Cache.Types
-import qualified Data.PSQueue as PSQ
+
+----------------------------------------------------------------
+
+data DNSCacheConf = DNSCacheConf {
+    dnsServers :: [HostName]
+  , maxConcurrency :: Int
+  , lifeTime :: NominalDiffTime
+  }
+
+data DNSCache = DNSCache {
+    cacheref :: IORef (PSQ Value)
+  , limvar :: TVar Int
+  , limit :: Int
+  , life :: NominalDiffTime
+  }
+
+----------------------------------------------------------------
+
+type Lookup = Domain -> IO (Either DNSError IPv4)
+type Wait = (Int -> Bool) -> IO ()
 
 withDNSCache :: DNSCacheConf -> (Lookup -> Wait -> IO a) -> IO a
 withDNSCache conf func = do
@@ -27,18 +52,23 @@ withDNSCache conf func = do
     lvar <- newTVarIO 0
     let cache = DNSCache cref lvar (maxConcurrency conf) (lifeTime conf)
     seeds <- makeSeeds (dnsServers conf)
+    void . forkIO $ prune cref
     func (lookupHostAddress cache seeds) (wait cache)
+
+----------------------------------------------------------------
 
 makeSeeds :: [HostName] -> IO [ResolvSeed]
 makeSeeds ips = mapM (makeResolvSeed . toConf) ips
  where
    toConf ip = defaultResolvConf { resolvInfo = RCHostName ip }
 
+----------------------------------------------------------------
+
 lookupHostAddress :: DNSCache -> [ResolvSeed] -> Lookup
 lookupHostAddress cache seeds dom = do
     psq <- readIORef cref
     case PSQ.lookup key psq of
-        Just (Value _ a ref) -> do
+        Just (_, Value a ref) -> do
             putStrLn "hit!"
             let (_, siz) = bounds a
             j <- atomicModifyIORef' ref $ \i -> (adjust i siz, i)
@@ -50,22 +80,22 @@ lookupHostAddress cache seeds dom = do
                 Left e           -> return $ Left e
                 Right []         -> return $ Left UnexpectedRDATA
                 Right ips@(ip:_) -> do
-                    !val <- newValue cache ips
+                    !val <- newValue ips
+                    tim <- addUTCTime lf <$> getCurrentTime
                     atomicModifyIORef' cref $
-                        \q -> (PSQ.insert key val q, ())
+                        \q -> (PSQ.insert key tim val q, ())
                     return $ Right ip
   where
     !k = B.toShort dom
     !h = hash dom
     !key = Key h k
     cref = cacheref cache
+    lf = life cache
 
-newValue :: DNSCache -> [IPv4] -> IO Value
-newValue (DNSCache _ _ _ lf) ips = do
+newValue :: [IPv4] -> IO Value
+newValue ips = do
     ref <- newIORef next
-    tim <- getCurrentTime
-    let !tim' = addUTCTime lf tim
-    return $! Value tim' arr ref
+    return $! Value arr ref
   where
     !siz = length ips
     !next = adjust 0 siz
@@ -75,6 +105,8 @@ adjust :: Int -> Int -> Int
 adjust i 0 = i
 adjust i n = let !x = (i + 1) `mod` n in x
 
+----------------------------------------------------------------
+
 resolve :: DNSCache -> [ResolvSeed] -> Domain -> IO (Either DNSError [IPv4])
 resolve cache seeds dom = bracket setup teardown body
   where
@@ -82,17 +114,15 @@ resolve cache seeds dom = bracket setup teardown body
     teardown _ = decrease cache
     body _ = concResolv seeds dom
 
-wait :: DNSCache -> Wait
-wait (DNSCache _ lvar _ _) cond = atomically $ do
-    x <- readTVar lvar
-    check (cond x)
-
 waitIncrease :: DNSCache -> IO ()
-waitIncrease (DNSCache _ lvar lim _) = atomically $ do
+waitIncrease cache = atomically $ do
     x <- readTVar lvar
     check (x < lim)
     let !x' = x + 1
     writeTVar lvar x'
+  where
+    lvar = limvar cache
+    lim = limit cache
 
 decrease :: DNSCache -> IO ()
 decrease (DNSCache _ lvar _ _) = atomically $ modifyTVar' lvar (subtract 1)
@@ -103,3 +133,17 @@ concResolv seeds dom = withResolvers seeds $ \resolvers -> do
     asyncs <- mapM async actions
     (_,x) <- waitAnyCancel asyncs
     return x
+
+----------------------------------------------------------------
+
+wait :: DNSCache -> Wait
+wait (DNSCache _ lvar _ _) cond = atomically $ do
+    x <- readTVar lvar
+    check (cond x)
+
+prune :: IORef (PSQ Value) -> IO ()
+prune cref = forever $ do
+    threadDelay 10000000
+    tim <- getCurrentTime
+    atomicModifyIORef' cref $ \p -> (snd (PSQ.atMost tim p), ())
+

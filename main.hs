@@ -15,7 +15,7 @@ maxConn = 200
 main :: IO ()
 main = withDNSCache conf loop
  where
-   conf = DNSCacheConf ["8.8.8.8","8.8.4.4"] maxConn 300
+   conf = DNSCacheConf ["8.8.8.8","8.8.4.4"] maxConn 180
    loop :: Lookup -> Wait -> IO ()
    loop lkup wait = do
        edom <- try BS.getLine
