@@ -24,7 +24,6 @@ import Data.Hashable (hash)
 import Data.IORef (newIORef, readIORef, atomicModifyIORef', IORef)
 import Data.IP (toHostAddress)
 import Data.Time (getCurrentTime, addUTCTime, NominalDiffTime)
-import Network.BSD (HostName)
 import Network.DNS
 import Network.DNS.Cache.PSQ (PSQ)
 import qualified Network.DNS.Cache.PSQ as PSQ
@@ -34,11 +33,9 @@ import Network.Socket (HostAddress)
 ----------------------------------------------------------------
 
 data DNSCacheConf = DNSCacheConf {
-    dnsServers     :: [HostName]
+    resolvConfs    :: [ResolvConf]
   , maxConcurrency :: Int
   , maxTTL         :: NominalDiffTime
-  -- fixme timeout for dns lib
-  -- fixme retries for dns lib
   }
 
 data DNSCache = DNSCache {
@@ -58,19 +55,12 @@ data Result = Hit HostAddress
 
 withDNSCache :: DNSCacheConf -> (DNSCache -> IO a) -> IO a
 withDNSCache conf func = do
-    seeds <- makeSeeds (dnsServers conf)
+    seeds <- mapM makeResolvSeed (resolvConfs conf)
     cacheref <- newIORef PSQ.empty
     lvar <- newTVarIO 0
     let cache = DNSCache seeds cacheref lvar (maxConcurrency conf) (maxTTL conf)
     void . forkIO $ prune cacheref
     func cache
-
-----------------------------------------------------------------
-
-makeSeeds :: [HostName] -> IO [ResolvSeed]
-makeSeeds ips = mapM (makeResolvSeed . toConf) ips
- where
-   toConf ip = defaultResolvConf { resolvInfo = RCHostName ip }
 
 ----------------------------------------------------------------
 
