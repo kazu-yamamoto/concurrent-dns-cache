@@ -143,6 +143,7 @@ decrease (DNSCache _ lvar _ _) = atomically $ modifyTVar' lvar (subtract 1)
 
 concResolv :: [ResolvSeed] -> Domain -> IO (Either DNSError [HostAddress])
 concResolv seeds dom = withResolvers seeds $ \resolvers -> do
+    -- fixme TTL
     let actions = map (`lookupA` dom) resolvers
     asyncs <- mapM async actions
     (_,eips) <- waitAnyCancel asyncs
