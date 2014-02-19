@@ -15,19 +15,20 @@ import Control.Concurrent.Async (async, waitAnyCancel)
 import Control.Concurrent.STM (newTVarIO, atomically, readTVar, writeTVar, modifyTVar', check, TVar)
 import Control.Exception (bracket)
 import Control.Monad (forever, void)
-import Data.Array
+import Data.Array.Unboxed
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Short as B
 import Data.Char (isDigit)
 import Data.Hashable (hash)
 import Data.IORef (newIORef, readIORef, atomicModifyIORef', IORef)
-import Data.IP (IPv4)
+import Data.IP (toHostAddress)
 import Data.Time (getCurrentTime, addUTCTime, NominalDiffTime)
 import Network.BSD (HostName)
 import Network.DNS
 import Network.DNS.Cache.PSQ (PSQ)
 import qualified Network.DNS.Cache.PSQ as PSQ
 import Network.DNS.Cache.Types
+import Network.Socket (HostAddress)
 
 ----------------------------------------------------------------
 
@@ -46,9 +47,9 @@ data DNSCache = DNSCache {
   , life :: NominalDiffTime
   }
 
-data Result = Hit IPv4
-            | Resolved IPv4
-            | Numeric IPv4
+data Result = Hit HostAddress
+            | Resolved HostAddress
+            | Numeric HostAddress
             deriving Show
 
 ----------------------------------------------------------------
@@ -92,12 +93,12 @@ lookupHostAddress cache seeds dom = do
             case x of
                 Left e           -> return $ Left e
                 Right []         -> return $ Left UnexpectedRDATA
-                Right ips@(ip:_) -> do
-                    !val <- newValue ips
+                Right addrs@(addr:_) -> do
+                    !val <- newValue addrs
                     tim <- addUTCTime lf <$> getCurrentTime
                     atomicModifyIORef' cref $
                         \q -> (PSQ.insert key tim val q, ())
-                    return $ Right $ Resolved ip
+                    return $ Right $ Resolved addr
   where
     !k = B.toShort dom
     !h = hash dom
@@ -105,14 +106,14 @@ lookupHostAddress cache seeds dom = do
     cref = cacheref cache
     lf = life cache
 
-newValue :: [IPv4] -> IO Value
-newValue ips = do
+newValue :: [HostAddress] -> IO Value
+newValue addrs = do
     ref <- newIORef next
     return $! Value arr ref
   where
-    !siz = length ips
+    !siz = length addrs
     !next = adjust 0 siz
-    !arr = listArray (0,siz-1) ips
+    !arr = listArray (0,siz-1) addrs
 
 adjust :: Int -> Int -> Int
 adjust i 0 = i
@@ -120,7 +121,7 @@ adjust i n = let !x = (i + 1) `mod` n in x
 
 ----------------------------------------------------------------
 
-resolve :: DNSCache -> [ResolvSeed] -> Domain -> IO (Either DNSError [IPv4])
+resolve :: DNSCache -> [ResolvSeed] -> Domain -> IO (Either DNSError [HostAddress])
 resolve cache seeds dom = bracket setup teardown body
   where
     setup = waitIncrease cache
@@ -140,12 +141,14 @@ waitIncrease cache = atomically $ do
 decrease :: DNSCache -> IO ()
 decrease (DNSCache _ lvar _ _) = atomically $ modifyTVar' lvar (subtract 1)
 
-concResolv :: [ResolvSeed] -> Domain -> IO (Either DNSError [IPv4])
+concResolv :: [ResolvSeed] -> Domain -> IO (Either DNSError [HostAddress])
 concResolv seeds dom = withResolvers seeds $ \resolvers -> do
     let actions = map (`lookupA` dom) resolvers
     asyncs <- mapM async actions
-    (_,x) <- waitAnyCancel asyncs
-    return x
+    (_,eips) <- waitAnyCancel asyncs
+    return $ case eips of
+        Left e    -> Left e
+        Right ips -> Right (map toHostAddress ips)
 
 ----------------------------------------------------------------
 
