@@ -6,7 +6,8 @@ module Network.DNS.Cache (
   , Result(..)
   , withDNSCache
   , DNSCache
-  , lookupHostAddress
+  , tryLookup
+  , lookup
   , wait
   ) where
 
@@ -24,11 +25,12 @@ import Data.Hashable (hash)
 import Data.IORef (newIORef, readIORef, atomicModifyIORef', IORef)
 import Data.IP (toHostAddress)
 import Data.Time (getCurrentTime, addUTCTime, NominalDiffTime)
-import Network.DNS
+import Network.DNS hiding (lookup)
 import Network.DNS.Cache.PSQ (PSQ)
 import qualified Network.DNS.Cache.PSQ as PSQ
 import Network.DNS.Cache.Types
 import Network.Socket (HostAddress)
+import Prelude hiding (lookup)
 
 ----------------------------------------------------------------
 
@@ -65,35 +67,55 @@ withDNSCache conf func = do
 
 ----------------------------------------------------------------
 
-lookupHostAddress :: DNSCache -> Domain -> IO (Either DNSError Result)
-lookupHostAddress _     dom
-  | isIPAddr dom            = return $ Right $ Numeric $ tov4 dom
-  where
-    tov4 = read . BS.unpack
-lookupHostAddress cache dom = do
+tryLookup :: DNSCache -> Domain -> IO (Maybe HostAddress)
+tryLookup cache dom = do
+    (_, mx) <- lookupCache cache dom
+    case mx of
+        Nothing    -> return Nothing
+        Just (_,v) -> Just <$> rotate v
+
+lookupCache :: DNSCache -> Domain -> IO (Key, Maybe (Prio, Value))
+lookupCache cache dom = do
     psq <- readIORef cacheref
-    case PSQ.lookup key psq of
-        Just (_, Value a ref) -> do
-            let (_, siz) = bounds a
-            j <- atomicModifyIORef' ref $ \i -> (adjust i siz, i)
-            let !addr = a ! j
-            return $ Right $ Hit addr
-        Nothing -> do
-            x <- resolve cache dom
-            case x of
-                Left e           -> return $ Left e
-                Right []         -> return $ Left UnexpectedRDATA
-                Right addrs@((addr,ttl):_) -> do
-                    !val <- newValue $ map fst addrs
-                    let lifeTime = min (cacheMaxTTL cache) (fromIntegral ttl)
-                    tim <- addUTCTime lifeTime <$> getCurrentTime
-                    atomicModifyIORef' cacheref $
-                        \q -> (PSQ.insert key tim val q, ())
-                    return $ Right $ Resolved addr
+    let !mx = PSQ.lookup key psq
+    return (key,mx)
   where
+    cacheref = cacheRef cache
     !k = B.toShort dom
     !h = hash dom
     !key = Key h k
+
+rotate :: Value -> IO HostAddress
+rotate (Value a ref) = do
+    let (_, siz) = bounds a
+    j <- atomicModifyIORef' ref $ \i -> (adjust i siz, i)
+    let !addr = a ! j
+    return addr
+
+lookup :: DNSCache -> Domain -> IO (Either DNSError Result)
+lookup _     dom
+  | isIPAddr dom            = return $ Right $ Numeric $ tov4 dom
+  where
+    tov4 = read . BS.unpack
+lookup cache dom = do
+    (key,mx) <- lookupCache cache dom
+    case mx of
+        Just (_, v)         -> Right . Hit <$> rotate v
+        Nothing -> do
+            x <- resolve cache dom
+            case x of
+                Left e      -> return $ Left e
+                Right addrs -> insert cache key addrs
+
+insert :: DNSCache -> Key -> [(HostAddress, TTL)] -> IO (Either DNSError Result)
+insert _     _   []                   = return $ Left UnexpectedRDATA
+insert cache key addrs@((addr,ttl):_) = do
+    !val <- newValue $ map fst addrs
+    !tim <- addUTCTime lifeTime <$> getCurrentTime
+    atomicModifyIORef' cacheref $ \q -> (PSQ.insert key tim val q, ())
+    return $! Right $ Resolved addr
+  where
+    !lifeTime = min (cacheMaxTTL cache) (fromIntegral ttl)
     cacheref = cacheRef cache
 
 newValue :: [HostAddress] -> IO Value

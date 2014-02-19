@@ -7,7 +7,7 @@ import Control.Exception (try, SomeException(..))
 import Control.Monad (void, when)
 import qualified Data.ByteString.Char8 as BS
 import Network.DNS
-import Network.DNS.Cache
+import Network.DNS.Cache as DNSC
 import Data.Time
 
 confs ::  [ResolvConf]
@@ -43,7 +43,7 @@ main = do
                putStrLn "Done."
            Right dom -> do
                wait cache (< maxCon)
-               void $ forkIO (lookupHostAddress cache dom >>= p dom)
+               void $ forkIO (DNSC.lookup cache dom >>= p dom)
                loop (n+1) beg cache
    p _   (Right _) = return ()
    p dom (Left  e) = do
