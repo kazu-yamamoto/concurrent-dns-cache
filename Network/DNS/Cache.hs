@@ -14,7 +14,6 @@ module Network.DNS.Cache (
 import Control.Applicative ((<$>))
 import Control.Concurrent (threadDelay, forkIO)
 import Control.Concurrent.Async (async, waitAnyCancel)
-import Control.Concurrent.STM (newTVarIO, atomically, readTVar, writeTVar, modifyTVar', check, TVar)
 import Control.Exception (bracket)
 import Control.Monad (forever, void)
 import Data.Array.Unboxed
@@ -28,6 +27,7 @@ import Data.Time (getCurrentTime, addUTCTime, NominalDiffTime)
 import Network.DNS hiding (lookup)
 import Network.DNS.Cache.PSQ (PSQ)
 import qualified Network.DNS.Cache.PSQ as PSQ
+import qualified Network.DNS.Cache.Sync as S
 import Network.DNS.Cache.Types
 import Network.Socket (HostAddress)
 import Prelude hiding (lookup)
@@ -44,7 +44,7 @@ data DNSCacheConf = DNSCacheConf {
 data DNSCache = DNSCache {
     cacheSeeds     :: [ResolvSeed]
   , cacheRef       :: IORef (PSQ Value)
-  , cacheConcVar   :: TVar Int
+  , cacheConcVar   :: S.ConcVar
   , cacheConcLimit :: Int
   , cacheMaxTTL    :: NominalDiffTime
   }
@@ -60,19 +60,12 @@ withDNSCache :: DNSCacheConf -> (DNSCache -> IO a) -> IO a
 withDNSCache conf func = do
     seeds <- mapM makeResolvSeed (resolvConfs conf)
     cacheref <- newIORef PSQ.empty
-    lvar <- newTVarIO 0
+    lvar <- S.newConcVar
     let cache = DNSCache seeds cacheref lvar (maxConcurrency conf) (maxTTL conf)
     void . forkIO $ prune cacheref
     func cache
 
 ----------------------------------------------------------------
-
-tryLookup :: DNSCache -> Domain -> IO (Maybe HostAddress)
-tryLookup cache dom = do
-    (_, mx) <- lookupCache cache dom
-    case mx of
-        Nothing    -> return Nothing
-        Just (_,v) -> Just <$> rotate v
 
 lookupCache :: DNSCache -> Domain -> IO (Key, Maybe (Prio, Value))
 lookupCache cache dom = do
@@ -85,12 +78,27 @@ lookupCache cache dom = do
     !h = hash dom
     !key = Key h k
 
+----------------------------------------------------------------
+
+tryLookup :: DNSCache -> Domain -> IO (Maybe HostAddress)
+tryLookup cache dom = do
+    (_, mx) <- lookupCache cache dom
+    case mx of
+        Nothing    -> return Nothing
+        Just (_,v) -> Just <$> rotate v
+
 rotate :: Value -> IO HostAddress
 rotate (Value a ref) = do
     let (_, siz) = bounds a
     j <- atomicModifyIORef' ref $ \i -> (adjust i siz, i)
     let !addr = a ! j
     return addr
+
+adjust :: Int -> Int -> Int
+adjust i 0 = i
+adjust i n = let !x = (i + 1) `mod` n in x
+
+----------------------------------------------------------------
 
 lookup :: DNSCache -> Domain -> IO (Either DNSError Result)
 lookup _     dom
@@ -127,10 +135,6 @@ newValue addrs = do
     !next = adjust 0 siz
     !arr = listArray (0,siz-1) addrs
 
-adjust :: Int -> Int -> Int
-adjust i 0 = i
-adjust i n = let !x = (i + 1) `mod` n in x
-
 ----------------------------------------------------------------
 
 resolve :: DNSCache -> Domain -> IO (Either DNSError [(HostAddress,TTL)])
@@ -142,17 +146,15 @@ resolve cache dom = bracket setup teardown body
     body _ = concResolv seeds dom
 
 waitIncrease :: DNSCache -> IO ()
-waitIncrease cache = atomically $ do
-    x <- readTVar lvar
-    check (x < lim)
-    let !x' = x + 1
-    writeTVar lvar x'
+waitIncrease cache = S.waitIncrease lvar lim
   where
     lvar = cacheConcVar cache
     lim = cacheConcLimit cache
 
 decrease :: DNSCache -> IO ()
-decrease (DNSCache _ _ lvar _ _) = atomically $ modifyTVar' lvar (subtract 1)
+decrease cache = S.decrease lvar
+  where
+    lvar = cacheConcVar cache
 
 concResolv :: [ResolvSeed] -> Domain -> IO (Either DNSError [(HostAddress,TTL)])
 concResolv seeds dom = withResolvers seeds $ \resolvers -> do
@@ -173,9 +175,9 @@ concResolv seeds dom = withResolvers seeds $ \resolvers -> do
 ----------------------------------------------------------------
 
 wait :: DNSCache -> (Int -> Bool) -> IO ()
-wait (DNSCache _ _ lvar _ _) cond = atomically $ do
-    x <- readTVar lvar
-    check (cond x)
+wait cache cond = S.wait lvar cond
+  where
+    lvar = cacheConcVar cache
 
 prune :: IORef (PSQ Value) -> IO ()
 prune cacheref = forever $ do
