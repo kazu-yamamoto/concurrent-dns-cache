@@ -34,19 +34,19 @@ import Network.Socket (HostAddress)
 ----------------------------------------------------------------
 
 data DNSCacheConf = DNSCacheConf {
-    dnsServers :: [HostName]
+    dnsServers     :: [HostName]
   , maxConcurrency :: Int
-  , lifeTime :: NominalDiffTime
+  , maxTTL         :: NominalDiffTime
   -- fixme timeout for dns lib
   -- fixme retries for dns lib
   }
 
 data DNSCache = DNSCache {
-    seeds :: [ResolvSeed]
-  , cacheref :: IORef (PSQ Value)
-  , limvar :: TVar Int
-  , limit :: Int
-  , life :: NominalDiffTime
+    cacheSeeds     :: [ResolvSeed]
+  , cacheRef       :: IORef (PSQ Value)
+  , cacheConcVar   :: TVar Int
+  , cacheConcLimit :: Int
+  , cacheMaxTTL    :: NominalDiffTime
   }
 
 data Result = Hit HostAddress
@@ -58,11 +58,11 @@ data Result = Hit HostAddress
 
 withDNSCache :: DNSCacheConf -> (DNSCache -> IO a) -> IO a
 withDNSCache conf func = do
-    ss <- makeSeeds (dnsServers conf)
-    cref <- newIORef PSQ.empty
+    seeds <- makeSeeds (dnsServers conf)
+    cacheref <- newIORef PSQ.empty
     lvar <- newTVarIO 0
-    let cache = DNSCache ss cref lvar (maxConcurrency conf) (lifeTime conf)
-    void . forkIO $ prune cref
+    let cache = DNSCache seeds cacheref lvar (maxConcurrency conf) (maxTTL conf)
+    void . forkIO $ prune cacheref
     func cache
 
 ----------------------------------------------------------------
@@ -80,7 +80,7 @@ lookupHostAddress _     dom
   where
     tov4 = read . BS.unpack
 lookupHostAddress cache dom = do
-    psq <- readIORef cref
+    psq <- readIORef cacheref
     case PSQ.lookup key psq of
         Just (_, Value a ref) -> do
             let (_, siz) = bounds a
@@ -94,16 +94,16 @@ lookupHostAddress cache dom = do
                 Right []         -> return $ Left UnexpectedRDATA
                 Right addrs@(addr:_) -> do
                     !val <- newValue addrs
-                    tim <- addUTCTime lf <$> getCurrentTime
-                    atomicModifyIORef' cref $
+                    tim <- addUTCTime ttl <$> getCurrentTime
+                    atomicModifyIORef' cacheref $
                         \q -> (PSQ.insert key tim val q, ())
                     return $ Right $ Resolved addr
   where
     !k = B.toShort dom
     !h = hash dom
     !key = Key h k
-    cref = cacheref cache
-    lf = life cache
+    cacheref = cacheRef cache
+    ttl = cacheMaxTTL cache -- FIXME
 
 newValue :: [HostAddress] -> IO Value
 newValue addrs = do
@@ -125,7 +125,8 @@ resolve cache dom = bracket setup teardown body
   where
     setup = waitIncrease cache
     teardown _ = decrease cache
-    body _ = concResolv (seeds cache) dom
+    seeds = cacheSeeds cache
+    body _ = concResolv seeds dom
 
 waitIncrease :: DNSCache -> IO ()
 waitIncrease cache = atomically $ do
@@ -134,14 +135,14 @@ waitIncrease cache = atomically $ do
     let !x' = x + 1
     writeTVar lvar x'
   where
-    lvar = limvar cache
-    lim = limit cache
+    lvar = cacheConcVar cache
+    lim = cacheConcLimit cache
 
 decrease :: DNSCache -> IO ()
 decrease (DNSCache _ _ lvar _ _) = atomically $ modifyTVar' lvar (subtract 1)
 
 concResolv :: [ResolvSeed] -> Domain -> IO (Either DNSError [HostAddress])
-concResolv ss dom = withResolvers ss $ \resolvers -> do
+concResolv seeds dom = withResolvers seeds $ \resolvers -> do
     -- fixme TTL
     let actions = map (`lookupA` dom) resolvers
     asyncs <- mapM async actions
@@ -158,10 +159,10 @@ wait (DNSCache _ _ lvar _ _) cond = atomically $ do
     check (cond x)
 
 prune :: IORef (PSQ Value) -> IO ()
-prune cref = forever $ do
+prune cacheref = forever $ do
     threadDelay 10000000
     tim <- getCurrentTime
-    atomicModifyIORef' cref $ \p -> (snd (PSQ.atMost tim p), ())
+    atomicModifyIORef' cacheref $ \p -> (snd (PSQ.atMost tim p), ())
 
 ----------------------------------------------------------------
 
