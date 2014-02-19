@@ -35,6 +35,7 @@ import Network.Socket (HostAddress)
 data DNSCacheConf = DNSCacheConf {
     resolvConfs    :: [ResolvConf]
   , maxConcurrency :: Int
+  -- | Seconds.
   , maxTTL         :: NominalDiffTime
   }
 
@@ -82,9 +83,10 @@ lookupHostAddress cache dom = do
             case x of
                 Left e           -> return $ Left e
                 Right []         -> return $ Left UnexpectedRDATA
-                Right addrs@(addr:_) -> do
-                    !val <- newValue addrs
-                    tim <- addUTCTime ttl <$> getCurrentTime
+                Right addrs@((addr,ttl):_) -> do
+                    !val <- newValue $ map fst addrs
+                    let lifeTime = min (cacheMaxTTL cache) (fromIntegral ttl)
+                    tim <- addUTCTime lifeTime <$> getCurrentTime
                     atomicModifyIORef' cacheref $
                         \q -> (PSQ.insert key tim val q, ())
                     return $ Right $ Resolved addr
@@ -93,7 +95,6 @@ lookupHostAddress cache dom = do
     !h = hash dom
     !key = Key h k
     cacheref = cacheRef cache
-    ttl = cacheMaxTTL cache -- FIXME
 
 newValue :: [HostAddress] -> IO Value
 newValue addrs = do
@@ -110,7 +111,7 @@ adjust i n = let !x = (i + 1) `mod` n in x
 
 ----------------------------------------------------------------
 
-resolve :: DNSCache -> Domain -> IO (Either DNSError [HostAddress])
+resolve :: DNSCache -> Domain -> IO (Either DNSError [(HostAddress,TTL)])
 resolve cache dom = bracket setup teardown body
   where
     setup = waitIncrease cache
@@ -131,15 +132,21 @@ waitIncrease cache = atomically $ do
 decrease :: DNSCache -> IO ()
 decrease (DNSCache _ _ lvar _ _) = atomically $ modifyTVar' lvar (subtract 1)
 
-concResolv :: [ResolvSeed] -> Domain -> IO (Either DNSError [HostAddress])
+concResolv :: [ResolvSeed] -> Domain -> IO (Either DNSError [(HostAddress,TTL)])
 concResolv seeds dom = withResolvers seeds $ \resolvers -> do
-    -- fixme TTL
-    let actions = map (`lookupA` dom) resolvers
+    let actions = map (\res -> lookupRaw res dom A) resolvers
     asyncs <- mapM async actions
-    (_,eips) <- waitAnyCancel asyncs
-    return $ case eips of
-        Left e    -> Left e
-        Right ips -> Right (map toHostAddress ips)
+    (_,eans) <- waitAnyCancel asyncs
+    return $ case eans of
+        Left  err -> Left err
+        Right ans -> fromDNSFormat ans getHostAddressandTTL
+  where
+    isA r = rrtype r == A
+    unTag (RD_A ip) = ip
+    unTag _         = error "unTag"
+    toAddr = toHostAddress . unTag . rdata
+    hostAddressandTTL r = (toAddr r, rrttl r)
+    getHostAddressandTTL = map hostAddressandTTL . filter isA . answer
 
 ----------------------------------------------------------------
 

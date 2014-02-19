@@ -18,3 +18,5 @@ data Value = Value (UArray Int HostAddress) (IORef Int)
 
 instance Show Value where
     show (Value a _) = show a
+
+type TTL = Int
