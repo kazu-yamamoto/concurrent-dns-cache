@@ -3,6 +3,10 @@ module Network.DNS.Cache.Sync where
 
 import Control.Applicative ((<$>))
 import Control.Concurrent.STM
+import Network.DNS (DNSError)
+import Network.DNS.Cache.Types
+
+----------------------------------------------------------------
 
 newtype ConcVar = ConcVar (TVar Int)
 
@@ -23,3 +27,16 @@ waitIncrease (ConcVar var) lim = atomically $ do
 
 decrease :: ConcVar -> IO ()
 decrease (ConcVar var) = atomically $ modifyTVar' var (subtract 1)
+
+----------------------------------------------------------------
+
+newtype ActiveVar = ActiveVar (TMVar (Either DNSError Result))
+
+newActiveVar :: IO ActiveVar
+newActiveVar = ActiveVar <$> newEmptyTMVarIO
+
+tell :: ActiveVar -> Either DNSError Result -> IO ()
+tell (ActiveVar var) r = atomically $ putTMVar var r
+
+listen :: ActiveVar -> IO (Either DNSError Result)
+listen (ActiveVar var) = atomically $ readTMVar var

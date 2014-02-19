@@ -23,6 +23,8 @@ import Data.Char (isDigit)
 import Data.Hashable (hash)
 import Data.IORef (newIORef, readIORef, atomicModifyIORef', IORef)
 import Data.IP (toHostAddress)
+import Data.Map (Map)
+import qualified Data.Map as Map
 import Data.Time (getCurrentTime, addUTCTime, NominalDiffTime)
 import Network.DNS hiding (lookup)
 import Network.DNS.Cache.PSQ (PSQ)
@@ -44,15 +46,11 @@ data DNSCacheConf = DNSCacheConf {
 data DNSCache = DNSCache {
     cacheSeeds     :: [ResolvSeed]
   , cacheRef       :: IORef (PSQ Value)
+  , cacheActiveRef :: IORef (Map Key S.ActiveVar)
   , cacheConcVar   :: S.ConcVar
   , cacheConcLimit :: Int
   , cacheMaxTTL    :: NominalDiffTime
   }
-
-data Result = Hit HostAddress
-            | Resolved HostAddress
-            | Numeric HostAddress
-            deriving Show
 
 ----------------------------------------------------------------
 
@@ -60,10 +58,14 @@ withDNSCache :: DNSCacheConf -> (DNSCache -> IO a) -> IO a
 withDNSCache conf func = do
     seeds <- mapM makeResolvSeed (resolvConfs conf)
     cacheref <- newIORef PSQ.empty
+    activeref <- newIORef Map.empty
     lvar <- S.newConcVar
-    let cache = DNSCache seeds cacheref lvar (maxConcurrency conf) (maxTTL conf)
+    let cache = DNSCache seeds cacheref activeref lvar maxcon maxttl
     void . forkIO $ prune cacheref
     func cache
+  where
+    maxcon = maxConcurrency conf
+    maxttl = maxTTL conf
 
 ----------------------------------------------------------------
 
@@ -110,10 +112,21 @@ lookup cache dom = do
     case mx of
         Just (_, v)         -> Right . Hit <$> rotate v
         Nothing -> do
-            x <- resolve cache dom
-            case x of
-                Left e      -> return $ Left e
-                Right addrs -> insert cache key addrs
+            m <- readIORef activeref
+            case Map.lookup key m of
+                Just avar -> S.listen avar
+                Nothing -> do
+                    avar <- S.newActiveVar
+                    atomicModifyIORef' activeref $
+                        \mp -> (Map.insert key avar mp, ())
+                    x <- resolve cache dom
+                    !res <- case x of
+                        Left e      -> return $ Left e
+                        Right addrs -> insert cache key addrs
+                    S.tell avar res
+                    return res
+  where
+    activeref = cacheActiveRef cache
 
 insert :: DNSCache -> Key -> [(HostAddress, TTL)] -> IO (Either DNSError Result)
 insert _     _   []                   = return $ Left UnexpectedRDATA

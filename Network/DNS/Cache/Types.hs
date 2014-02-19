@@ -20,3 +20,8 @@ instance Show Value where
     show (Value a _) = show a
 
 type TTL = Int
+
+data Result = Hit HostAddress
+            | Resolved HostAddress
+            | Numeric HostAddress
+            deriving Show
