@@ -123,6 +123,8 @@ lookup cache dom = do
                     !res <- case x of
                         Left e      -> return $ Left e
                         Right addrs -> insert cache key addrs
+                    atomicModifyIORef' activeref $
+                        \mp -> (Map.delete key mp, ())
                     S.tell avar res
                     return res
   where
