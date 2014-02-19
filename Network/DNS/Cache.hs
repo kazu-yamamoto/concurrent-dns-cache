@@ -3,10 +3,11 @@
 
 module Network.DNS.Cache (
     DNSCacheConf(..)
-  , Lookup
-  , Wait
   , Result(..)
   , withDNSCache
+  , DNSCache
+  , lookupHostAddress
+  , wait
   ) where
 
 import Control.Applicative ((<$>))
@@ -41,7 +42,8 @@ data DNSCacheConf = DNSCacheConf {
   }
 
 data DNSCache = DNSCache {
-    cacheref :: IORef (PSQ Value)
+    seeds :: [ResolvSeed]
+  , cacheref :: IORef (PSQ Value)
   , limvar :: TVar Int
   , limit :: Int
   , life :: NominalDiffTime
@@ -54,17 +56,14 @@ data Result = Hit HostAddress
 
 ----------------------------------------------------------------
 
-type Lookup = Domain -> IO (Either DNSError Result)
-type Wait = (Int -> Bool) -> IO ()
-
-withDNSCache :: DNSCacheConf -> (Lookup -> Wait -> IO a) -> IO a
+withDNSCache :: DNSCacheConf -> (DNSCache -> IO a) -> IO a
 withDNSCache conf func = do
+    ss <- makeSeeds (dnsServers conf)
     cref <- newIORef PSQ.empty
     lvar <- newTVarIO 0
-    let cache = DNSCache cref lvar (maxConcurrency conf) (lifeTime conf)
-    seeds <- makeSeeds (dnsServers conf)
+    let cache = DNSCache ss cref lvar (maxConcurrency conf) (lifeTime conf)
     void . forkIO $ prune cref
-    func (lookupHostAddress cache seeds) (wait cache)
+    func cache
 
 ----------------------------------------------------------------
 
@@ -75,12 +74,12 @@ makeSeeds ips = mapM (makeResolvSeed . toConf) ips
 
 ----------------------------------------------------------------
 
-lookupHostAddress :: DNSCache -> [ResolvSeed] -> Lookup
-lookupHostAddress _     _     dom
-  | isIPAddr dom                  = return $ Right $ Numeric $ tov4 dom
+lookupHostAddress :: DNSCache -> Domain -> IO (Either DNSError Result)
+lookupHostAddress _     dom
+  | isIPAddr dom            = return $ Right $ Numeric $ tov4 dom
   where
     tov4 = read . BS.unpack
-lookupHostAddress cache seeds dom = do
+lookupHostAddress cache dom = do
     psq <- readIORef cref
     case PSQ.lookup key psq of
         Just (_, Value a ref) -> do
@@ -89,7 +88,7 @@ lookupHostAddress cache seeds dom = do
             let !addr = a ! j
             return $ Right $ Hit addr
         Nothing -> do
-            x <- resolve cache seeds dom
+            x <- resolve cache dom
             case x of
                 Left e           -> return $ Left e
                 Right []         -> return $ Left UnexpectedRDATA
@@ -121,12 +120,12 @@ adjust i n = let !x = (i + 1) `mod` n in x
 
 ----------------------------------------------------------------
 
-resolve :: DNSCache -> [ResolvSeed] -> Domain -> IO (Either DNSError [HostAddress])
-resolve cache seeds dom = bracket setup teardown body
+resolve :: DNSCache -> Domain -> IO (Either DNSError [HostAddress])
+resolve cache dom = bracket setup teardown body
   where
     setup = waitIncrease cache
     teardown _ = decrease cache
-    body _ = concResolv seeds dom
+    body _ = concResolv (seeds cache) dom
 
 waitIncrease :: DNSCache -> IO ()
 waitIncrease cache = atomically $ do
@@ -139,10 +138,10 @@ waitIncrease cache = atomically $ do
     lim = limit cache
 
 decrease :: DNSCache -> IO ()
-decrease (DNSCache _ lvar _ _) = atomically $ modifyTVar' lvar (subtract 1)
+decrease (DNSCache _ _ lvar _ _) = atomically $ modifyTVar' lvar (subtract 1)
 
 concResolv :: [ResolvSeed] -> Domain -> IO (Either DNSError [HostAddress])
-concResolv seeds dom = withResolvers seeds $ \resolvers -> do
+concResolv ss dom = withResolvers ss $ \resolvers -> do
     -- fixme TTL
     let actions = map (`lookupA` dom) resolvers
     asyncs <- mapM async actions
@@ -153,8 +152,8 @@ concResolv seeds dom = withResolvers seeds $ \resolvers -> do
 
 ----------------------------------------------------------------
 
-wait :: DNSCache -> Wait
-wait (DNSCache _ lvar _ _) cond = atomically $ do
+wait :: DNSCache -> (Int -> Bool) -> IO ()
+wait (DNSCache _ _ lvar _ _) cond = atomically $ do
     x <- readTVar lvar
     check (cond x)
 

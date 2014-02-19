@@ -18,20 +18,20 @@ main = do
     withDNSCache conf (loop 1 beg)
  where
    conf = DNSCacheConf ["8.8.8.8","8.8.4.4"] maxConn 180
-   loop :: Int -> UTCTime -> Lookup -> Wait -> IO ()
-   loop n beg lkup wait = do
+   loop :: Int -> UTCTime -> DNSCache -> IO ()
+   loop n beg cache = do
        when (n `mod` 1000 == 0) $ do
            cur <- getCurrentTime
            putStrLn $ show n ++ ": " ++ show (cur `diffUTCTime` beg)
        edom <- try BS.getLine
        case edom of
            Left (SomeException _) -> do
-               wait (== 0)
+               wait cache (== 0)
                putStrLn "Done."
            Right dom -> do
-               wait (< maxConn)
-               void $ forkIO (lkup dom >>= p dom)
-               loop (n+1) beg lkup wait
+               wait cache (< maxConn)
+               void $ forkIO (lookupHostAddress cache dom >>= p dom)
+               loop (n+1) beg cache
    p _   (Right _) = return ()
    p dom (Left  e) = do
        putStr $ show e ++ " "
