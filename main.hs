@@ -44,7 +44,7 @@ main = do
                putStrLn "Done."
            Right dom -> do
                wait cache (< maxCon)
-               void $ forkIO (DNSC.lookup cache dom >>= p dom)
+               void $ forkIO (DNSC.resolve cache dom >>= p dom)
                loop (n+1) beg cache
    p _   (Right _) = return ()
    p dom (Left  e) = do

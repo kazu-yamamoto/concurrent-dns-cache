@@ -3,11 +3,15 @@
 
 module Network.DNS.Cache (
     DNSCacheConf(..)
-  , Result(..)
-  , withDNSCache
   , DNSCache
-  , tryLookup
+  , withDNSCache
+  -- * Looking up
   , lookup
+  , lookupCache
+  -- * Resolving
+  , Result(..)
+  , resolve
+  -- * Waiting
   , wait
   ) where
 
@@ -41,6 +45,7 @@ data DNSCacheConf = DNSCacheConf {
   , maxConcurrency :: Int
   -- | Seconds.
   , minTTL         :: NominalDiffTime
+  -- | Seconds.
   , maxTTL         :: NominalDiffTime
   }
 
@@ -74,8 +79,8 @@ withDNSCache conf func = do
 
 ----------------------------------------------------------------
 
-lookupCache :: DNSCache -> Domain -> IO (Key, Maybe (Prio, Value))
-lookupCache cache dom = do
+lookupPSQ :: DNSCache -> Domain -> IO (Key, Maybe (Prio, Value))
+lookupPSQ cache dom = do
     psq <- readIORef cacheref
     let !mx = PSQ.lookup key psq
     return (key,mx)
@@ -87,9 +92,10 @@ lookupCache cache dom = do
 
 ----------------------------------------------------------------
 
-tryLookup :: DNSCache -> Domain -> IO (Maybe HostAddress)
-tryLookup cache dom = do
-    (_, mx) <- lookupCache cache dom
+-- | Lookup 'Domain' only in the cache.
+lookupCache :: DNSCache -> Domain -> IO (Maybe HostAddress)
+lookupCache cache dom = do
+    (_, mx) <- lookupPSQ cache dom
     case mx of
         Nothing    -> return Nothing
         Just (_,v) -> Just <$> rotate v
@@ -107,13 +113,30 @@ adjust i n = let !x = (i + 1) `mod` n in x
 
 ----------------------------------------------------------------
 
-lookup :: DNSCache -> Domain -> IO (Either DNSError Result)
-lookup _     dom
+fromResult :: Result -> HostAddress
+fromResult (Hit      addr) = addr
+fromResult (Resolved addr) = addr
+fromResult (Numeric  addr) = addr
+
+fromEither :: Either DNSError Result -> Maybe HostAddress
+fromEither (Right res) = Just (fromResult res)
+fromEither (Left    _) = Nothing
+
+lookup :: DNSCache -> Domain -> IO (Maybe HostAddress)
+lookup cache dom = fromEither <$> resolve cache dom
+
+----------------------------------------------------------------
+
+-- | Lookup 'Domain' in the cache.
+--   If not exist, queries are sent to DNS servers and
+--   resolved IP addresses are cached.
+resolve :: DNSCache -> Domain -> IO (Either DNSError Result)
+resolve _     dom
   | isIPAddr dom            = return $ Right $ Numeric $ tov4 dom
   where
     tov4 = read . BS.unpack
-lookup cache dom = do
-    (key,mx) <- lookupCache cache dom
+resolve cache dom = do
+    (key,mx) <- lookupPSQ cache dom
     case mx of
         Just (_, v)         -> Right . Hit <$> rotate v
         Nothing -> do
@@ -124,7 +147,7 @@ lookup cache dom = do
                     avar <- S.newActiveVar
                     atomicModifyIORef' activeref $
                         \mp -> (Map.insert key avar mp, ())
-                    x <- resolve cache dom
+                    x <- sendQuery cache dom
                     !res <- case x of
                         Left e      -> return $ Left e
                         Right addrs -> insert cache key addrs
@@ -159,8 +182,8 @@ newValue addrs = do
 
 ----------------------------------------------------------------
 
-resolve :: DNSCache -> Domain -> IO (Either DNSError [(HostAddress,TTL)])
-resolve cache dom = bracket setup teardown body
+sendQuery :: DNSCache -> Domain -> IO (Either DNSError [(HostAddress,TTL)])
+sendQuery cache dom = bracket setup teardown body
   where
     setup = waitIncrease cache
     teardown _ = decrease cache
@@ -203,6 +226,18 @@ resolv _ resolvers dom = do
 
 ----------------------------------------------------------------
 
+-- | Wait until the predicate in the second argument is satisfied.
+--   The predicate are given the number of the current resolving domains.
+--
+-- For instance, if you ensure that no resolvings are going on:
+--
+-- > wait cache (== 0)
+--
+-- If you want to ensure that capability of concurrent resolving is not full:
+--
+-- > wait cache (< maxCon)
+--
+-- where 'maxCon' represents 'maxConcurrency' in 'DNSCacheConf'.
 wait :: DNSCache -> (Int -> Bool) -> IO ()
 wait cache cond = S.wait lvar cond
   where
