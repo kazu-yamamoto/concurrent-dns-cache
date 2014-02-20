@@ -20,7 +20,13 @@ import Network.Socket (HostAddress)
 
 type Hash = Int
 
-data Key = Key !Hash !ShortByteString deriving (Eq,Ord,Show)
+data Key = Key !Hash            -- making lookup faster
+               !ShortByteString -- avoiding memory fragmentation
+               deriving (Ord,Show)
+
+instance Eq Key where
+    -- Just ensuring the order of evaluation.
+    Key h1 k1 == Key h2 k2 = h1 == h2 && k1 == k2
 
 type Prio = UTCTime
 
