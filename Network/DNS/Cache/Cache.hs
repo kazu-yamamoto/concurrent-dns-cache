@@ -1,7 +1,8 @@
 {-# LANGUAGE BangPatterns #-}
 
 module Network.DNS.Cache.Cache (
-    CacheRef
+    Entry
+  , CacheRef
   , newCacheRef
   , lookupCacheRef
   , insertCacheRef
@@ -18,21 +19,23 @@ import Network.DNS.Cache.PSQ (PSQ)
 import qualified Network.DNS.Cache.PSQ as PSQ
 import Network.DNS.Cache.Types
 
-newtype CacheRef = CacheRef (IORef (PSQ Value))
+type Entry = Either DNSError Value
+
+newtype CacheRef = CacheRef (IORef (PSQ Entry))
 
 newCacheRef :: IO CacheRef
 newCacheRef = CacheRef <$> newIORef PSQ.empty
 
-lookupCacheRef :: Key -> CacheRef -> IO (Maybe (Prio, Value))
+lookupCacheRef :: Key -> CacheRef -> IO (Maybe (Prio, Entry))
 lookupCacheRef key (CacheRef ref) = PSQ.lookup key <$> readIORef ref
 
-insertCacheRef :: Key -> Prio -> Value -> CacheRef -> IO ()
-insertCacheRef key pri val (CacheRef ref) =
-    atomicModifyIORef' ref $ \q -> (PSQ.insert key pri val q, ())
+insertCacheRef :: Key -> Prio -> Entry -> CacheRef -> IO ()
+insertCacheRef key tim ent (CacheRef ref) =
+    atomicModifyIORef' ref $ \q -> (PSQ.insert key tim ent q, ())
 
 pruneCacheRef :: Prio -> CacheRef -> IO ()
-pruneCacheRef pri (CacheRef ref) =
-    atomicModifyIORef' ref $ \p -> (snd (PSQ.atMost pri p), ())
+pruneCacheRef tim (CacheRef ref) =
+    atomicModifyIORef' ref $ \p -> (snd (PSQ.atMost tim p), ())
 
 newKey :: ByteString -> Key
 newKey dom = Key h k

@@ -11,6 +11,7 @@ module Network.DNS.Cache (
   -- * Resolving
   , Result(..)
   , resolve
+  , resolveCache
   -- * Waiting
   , wait
   ) where
@@ -72,7 +73,7 @@ withDNSCache conf func = do
 
 ----------------------------------------------------------------
 
-lookupPSQ :: DNSCache -> Domain -> IO (Key, Maybe (Prio, Value))
+lookupPSQ :: DNSCache -> Domain -> IO (Key, Maybe (Prio, Entry))
 lookupPSQ cache dom = do
     !mx <- lookupCacheRef key cacheref
     return (key,mx)
@@ -85,17 +86,33 @@ lookupPSQ cache dom = do
 -- | Lookup 'Domain' only in the cache.
 lookupCache :: DNSCache -> Domain -> IO (Maybe HostAddress)
 lookupCache cache dom = do
-    (_, mx) <- lookupPSQ cache dom
+    mx <- resolveCache cache dom
     case mx of
-        Nothing    -> return Nothing
-        Just (_,v) -> Just <$> rotate v
+        Nothing -> return Nothing
+        Just ev -> return (fromEither ev)
 
 ----------------------------------------------------------------
 
+-- | Lookup 'Domain' in the cache.
+--   If not exist, queries are sent to DNS servers and
+--   resolved IP addresses are cached.
 lookup :: DNSCache -> Domain -> IO (Maybe HostAddress)
 lookup cache dom = fromEither <$> resolve cache dom
 
 ----------------------------------------------------------------
+
+-- | Lookup 'Domain' only in the cache.
+resolveCache :: DNSCache -> Domain -> IO (Maybe (Either DNSError Result))
+resolveCache _ dom
+  | isIPAddr dom       = Just . Right . Numeric <$> return (tov4 dom)
+  where
+    tov4 = read . BS.unpack
+resolveCache cache dom = do
+    (_, mx) <- lookupPSQ cache dom
+    case mx of
+        Nothing           -> return Nothing
+        Just (_, Right v) -> Just . Right . Hit <$> rotate v
+        Just (_, Left e)  -> Just . Left <$> return e
 
 -- | Lookup 'Domain' in the cache.
 --   If not exist, queries are sent to DNS servers and
@@ -108,7 +125,9 @@ resolve _     dom
 resolve cache dom = do
     (key,mx) <- lookupPSQ cache dom
     case mx of
-        Just (_, v)         -> Right . Hit <$> rotate v
+        Just (_,ev) -> case ev of
+            Left  _ -> undefined
+            Right v -> Right . Hit <$> rotate v
         Nothing -> do
             ma <- S.lookupActiveRef key activeref
             case ma of
@@ -131,7 +150,7 @@ insert _     _   []                   = return $ Left UnexpectedRDATA
 insert cache key addrs@((addr,ttl):_) = do
     !val <- newValue $ map fst addrs
     !tim <- addUTCTime lifeTime <$> getCurrentTime
-    insertCacheRef key tim val cacheref
+    insertCacheRef key tim (Right val) cacheref
     return $! Right $ Resolved addr
   where
     minttl = cacheMinTTL cache
