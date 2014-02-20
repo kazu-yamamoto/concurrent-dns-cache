@@ -30,7 +30,15 @@ spec = describe "withDnsCache" $ do
         lookup       cache dom `shouldReturn` Just addr
     it "resolves domains and caches nagative" $ withDNSCache cacheConf $ \cache -> do
         let dom = "not-exist.com"
-        resolve      cache dom `shouldReturn` Left UnexpectedRDATA
-        resolveCache cache dom `shouldReturn` Just (Left UnexpectedRDATA)
+            err = UnexpectedRDATA
+        resolve      cache dom `shouldReturn` Left err
+        resolveCache cache dom `shouldReturn` Just (Left err)
+        lookupCache  cache dom `shouldReturn` Nothing
+        lookup       cache dom `shouldReturn` Nothing
+    it "resolves domains and caches nagative" $ withDNSCache cacheConf $ \cache -> do
+        let dom = "non-exist.org"
+            err = NameError
+        resolve      cache dom `shouldReturn` Left err
+        resolveCache cache dom `shouldReturn` Just (Left err)
         lookupCache  cache dom `shouldReturn` Nothing
         lookup       cache dom `shouldReturn` Nothing
