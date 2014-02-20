@@ -3,6 +3,7 @@ module Network.DNS.Cache.Types (
   , Key(..)
   , Prio
   , Value(..)
+  , Entry
   , Result(..)
   , TTL
   , HostAddress
@@ -36,3 +37,5 @@ data Result = Hit HostAddress
             | Resolved HostAddress
             | Numeric HostAddress
             deriving Show
+
+type Entry = Either DNSError Value

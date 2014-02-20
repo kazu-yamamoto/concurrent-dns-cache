@@ -1,8 +1,7 @@
 {-# LANGUAGE BangPatterns #-}
 
 module Network.DNS.Cache.Cache (
-    Entry
-  , CacheRef
+    CacheRef
   , newCacheRef
   , lookupCacheRef
   , insertCacheRef
@@ -18,8 +17,6 @@ import Data.IORef (newIORef, readIORef, atomicModifyIORef', IORef)
 import Network.DNS.Cache.PSQ (PSQ)
 import qualified Network.DNS.Cache.PSQ as PSQ
 import Network.DNS.Cache.Types
-
-type Entry = Either DNSError Value
 
 newtype CacheRef = CacheRef (IORef (PSQ Entry))
 

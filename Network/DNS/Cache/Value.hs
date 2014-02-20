@@ -6,10 +6,11 @@ import Data.Array.Unboxed
 import Data.IORef (newIORef, atomicModifyIORef')
 import Network.DNS.Cache.Types
 
-newValue :: [HostAddress] -> IO Value
-newValue addrs = do
+positiveEntry :: [HostAddress] -> IO Entry
+positiveEntry addrs = do
     ref <- newIORef next
-    return $! Value arr ref
+    let !val = Value arr ref
+    return $! Right val
   where
     !siz = length addrs
     !next = adjust 0 siz

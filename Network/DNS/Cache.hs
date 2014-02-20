@@ -41,6 +41,7 @@ data DNSCacheConf = DNSCacheConf {
   , minTTL         :: NominalDiffTime
   -- | Seconds.
   , maxTTL         :: NominalDiffTime
+  , negativeTTL    :: NominalDiffTime
   }
 
 data DNSCache = DNSCache {
@@ -52,6 +53,7 @@ data DNSCache = DNSCache {
   , cacheConcLimit  :: Int
   , cacheMinTTL     :: NominalDiffTime
   , cacheMaxTTL     :: NominalDiffTime
+  , cacheNegTTL     :: NominalDiffTime
   }
 
 ----------------------------------------------------------------
@@ -63,13 +65,14 @@ withDNSCache conf func = do
     cacheref <- newCacheRef
     activeref <- S.newActiveRef
     lvar <- S.newConcVar
-    let cache = DNSCache seeds n cacheref activeref lvar maxcon minttl maxttl
+    let cache = DNSCache seeds n cacheref activeref lvar maxcon minttl maxttl negttl
     void . forkIO $ prune cacheref
     func cache
   where
     maxcon = maxConcurrency conf
-    minttl = maxTTL conf
+    minttl = minTTL conf
     maxttl = maxTTL conf
+    negttl = negativeTTL conf
 
 ----------------------------------------------------------------
 
@@ -126,7 +129,7 @@ resolve cache dom = do
     (key,mx) <- lookupPSQ cache dom
     case mx of
         Just (_,ev) -> case ev of
-            Left  _ -> undefined
+            Left  e -> Left <$> return e
             Right v -> Right . Hit <$> rotate v
         Nothing -> do
             ma <- S.lookupActiveRef key activeref
@@ -137,25 +140,35 @@ resolve cache dom = do
                     S.insertActiveRef key avar activeref
                     x <- sendQuery cache dom
                     !res <- case x of
-                        Left e      -> return $ Left e
-                        Right addrs -> insert cache key addrs
+                        Left  err   -> insertNegative cache key err
+                        Right addrs -> insertPositive cache key addrs
                     S.deleteActiveRef key activeref
                     S.tell avar res
                     return res
   where
     activeref = cacheActiveRef cache
 
-insert :: DNSCache -> Key -> [(HostAddress, TTL)] -> IO (Either DNSError Result)
-insert _     _   []                   = return $ Left UnexpectedRDATA
-insert cache key addrs@((addr,ttl):_) = do
-    !val <- newValue $ map fst addrs
+insertPositive :: DNSCache -> Key -> [(HostAddress, TTL)]
+               -> IO (Either DNSError Result)
+insertPositive _     _   []                   = return $ Left UnexpectedRDATA
+insertPositive cache key addrs@((addr,ttl):_) = do
+    !ent <- positiveEntry $ map fst addrs
     !tim <- addUTCTime lifeTime <$> getCurrentTime
-    insertCacheRef key tim (Right val) cacheref
+    insertCacheRef key tim ent cacheref
     return $! Right $ Resolved addr
   where
     minttl = cacheMinTTL cache
     maxttl = cacheMaxTTL cache
     !lifeTime = minttl `max` (maxttl `min` fromIntegral ttl)
+    cacheref = cacheRef cache
+
+insertNegative :: DNSCache -> Key -> DNSError -> IO (Either DNSError Result)
+insertNegative cache key err = do
+    !tim <- addUTCTime lifeTime <$> getCurrentTime
+    insertCacheRef key tim (Left err) cacheref
+    return $ Left err
+  where
+    lifeTime = cacheNegTTL cache
     cacheref = cacheRef cache
 
 ----------------------------------------------------------------
