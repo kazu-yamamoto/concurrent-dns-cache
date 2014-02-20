@@ -21,10 +21,7 @@ import Control.Concurrent.Async (async, waitAnyCancel)
 import Control.Exception (bracket)
 import Control.Monad (forever, void)
 import qualified Data.ByteString.Char8 as BS
-import Data.IORef (newIORef, readIORef, atomicModifyIORef', IORef)
 import Data.IP (toHostAddress)
-import Data.Map (Map)
-import qualified Data.Map as Map
 import Data.Time (getCurrentTime, addUTCTime, NominalDiffTime)
 import Network.DNS hiding (lookup)
 import Network.DNS.Cache.Cache
@@ -49,7 +46,7 @@ data DNSCache = DNSCache {
     cacheSeeds      :: [ResolvSeed]
   , cacheNofServers :: !Int
   , cacheRef        :: CacheRef
-  , cacheActiveRef  :: IORef (Map Key S.ActiveVar)
+  , cacheActiveRef  :: S.ActiveRef
   , cacheConcVar    :: S.ConcVar
   , cacheConcLimit  :: Int
   , cacheMinTTL     :: NominalDiffTime
@@ -63,7 +60,7 @@ withDNSCache conf func = do
     seeds <- mapM makeResolvSeed (resolvConfs conf)
     let n = length seeds
     cacheref <- newCacheRef
-    activeref <- newIORef Map.empty
+    activeref <- S.newActiveRef
     lvar <- S.newConcVar
     let cache = DNSCache seeds n cacheref activeref lvar maxcon minttl maxttl
     void . forkIO $ prune cacheref
@@ -113,19 +110,17 @@ resolve cache dom = do
     case mx of
         Just (_, v)         -> Right . Hit <$> rotate v
         Nothing -> do
-            m <- readIORef activeref
-            case Map.lookup key m of
+            ma <- S.lookupActiveRef key activeref
+            case ma of
                 Just avar -> S.listen avar
                 Nothing   -> do
                     avar <- S.newActiveVar
-                    atomicModifyIORef' activeref $
-                        \mp -> (Map.insert key avar mp, ())
+                    S.insertActiveRef key avar activeref
                     x <- sendQuery cache dom
                     !res <- case x of
                         Left e      -> return $ Left e
                         Right addrs -> insert cache key addrs
-                    atomicModifyIORef' activeref $
-                        \mp -> (Map.delete key mp, ())
+                    S.deleteActiveRef key activeref
                     S.tell avar res
                     return res
   where

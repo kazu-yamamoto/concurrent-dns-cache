@@ -10,11 +10,19 @@ module Network.DNS.Cache.Sync (
   , newActiveVar
   , tell
   , listen
+  , ActiveRef
+  , newActiveRef
+  , lookupActiveRef
+  , insertActiveRef
+  , deleteActiveRef
   ) where
 
 import Control.Applicative ((<$>))
 import Control.Concurrent.STM
+import Data.Map (Map)
+import qualified Data.Map as Map
 import Network.DNS.Cache.Types
+import Data.IORef (newIORef, readIORef, atomicModifyIORef', IORef)
 
 ----------------------------------------------------------------
 
@@ -50,3 +58,21 @@ tell (ActiveVar var) r = atomically $ putTMVar var r
 
 listen :: ActiveVar -> IO (Either DNSError Result)
 listen (ActiveVar var) = atomically $ readTMVar var
+
+----------------------------------------------------------------
+
+newtype ActiveRef = ActiveRef (IORef (Map Key ActiveVar))
+
+newActiveRef :: IO ActiveRef
+newActiveRef = ActiveRef <$> newIORef Map.empty
+
+lookupActiveRef :: Key -> ActiveRef -> IO (Maybe ActiveVar)
+lookupActiveRef key (ActiveRef ref) = Map.lookup key <$> readIORef ref
+
+insertActiveRef :: Key -> ActiveVar -> ActiveRef -> IO ()
+insertActiveRef key avar (ActiveRef ref) =
+    atomicModifyIORef' ref $ \mp -> (Map.insert key avar mp, ())
+
+deleteActiveRef :: Key -> ActiveRef -> IO ()
+deleteActiveRef key (ActiveRef ref) =
+    atomicModifyIORef' ref $ \mp -> (Map.delete key mp, ())
