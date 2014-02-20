@@ -1,9 +1,20 @@
-module Network.DNS.Cache.Types where
+module Network.DNS.Cache.Types (
+    Hash
+  , Key(..)
+  , Prio
+  , Value(..)
+  , Result(..)
+  , TTL
+  , HostAddress
+  , Domain
+  , DNSError(..)
+  ) where
 
 import Data.Array.Unboxed (UArray)
 import Data.ByteString.Short (ShortByteString)
 import Data.IORef (IORef)
 import Data.Time (UTCTime)
+import Network.DNS (Domain, DNSError(..))
 import Network.Socket (HostAddress)
 
 type Hash = Int

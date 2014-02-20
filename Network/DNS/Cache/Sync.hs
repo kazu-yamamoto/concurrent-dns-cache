@@ -14,7 +14,6 @@ module Network.DNS.Cache.Sync (
 
 import Control.Applicative ((<$>))
 import Control.Concurrent.STM
-import Network.DNS (DNSError)
 import Network.DNS.Cache.Types
 
 ----------------------------------------------------------------

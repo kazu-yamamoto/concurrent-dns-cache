@@ -32,7 +32,6 @@ import qualified Network.DNS.Cache.Sync as S
 import Network.DNS.Cache.Types
 import Network.DNS.Cache.Utils
 import Network.DNS.Cache.Value
-import Network.Socket (HostAddress)
 import Prelude hiding (lookup)
 
 ----------------------------------------------------------------
@@ -95,15 +94,6 @@ lookupCache cache dom = do
         Just (_,v) -> Just <$> rotate v
 
 ----------------------------------------------------------------
-
-fromResult :: Result -> HostAddress
-fromResult (Hit      addr) = addr
-fromResult (Resolved addr) = addr
-fromResult (Numeric  addr) = addr
-
-fromEither :: Either DNSError Result -> Maybe HostAddress
-fromEither (Right res) = Just (fromResult res)
-fromEither (Left    _) = Nothing
 
 lookup :: DNSCache -> Domain -> IO (Maybe HostAddress)
 lookup cache dom = fromEither <$> resolve cache dom
