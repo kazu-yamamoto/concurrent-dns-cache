@@ -141,6 +141,7 @@ resolve cache dom = do
                     x <- sendQuery cache dom
                     !res <- case x of
                         Left  err   -> insertNegative cache key err
+                        Right []    -> insertNegative cache key UnexpectedRDATA
                         Right addrs -> insertPositive cache key addrs
                     S.deleteActiveRef key activeref
                     S.tell avar res
@@ -150,7 +151,7 @@ resolve cache dom = do
 
 insertPositive :: DNSCache -> Key -> [(HostAddress, TTL)]
                -> IO (Either DNSError Result)
-insertPositive _     _   []                   = return $ Left UnexpectedRDATA
+insertPositive _     _   []                   = error "insertPositive"
 insertPositive cache key addrs@((addr,ttl):_) = do
     !ent <- positiveEntry $ map fst addrs
     !tim <- addUTCTime lifeTime <$> getCurrentTime

@@ -36,6 +36,6 @@ type TTL = Int
 data Result = Hit HostAddress
             | Resolved HostAddress
             | Numeric HostAddress
-            deriving Show
+            deriving (Eq,Show)
 
 type Entry = Either DNSError Value

@@ -47,3 +47,14 @@ Executable main
                       , network
                       , stm
                       , time
+
+Test-Suite spec
+  Main-Is:              Spec.hs
+  Default-Language:     Haskell2010
+  Other-modules:        CacheSpec
+  Hs-Source-Dirs:       test
+  Type:                 exitcode-stdio-1.0
+  Build-Depends:        base >= 4 && < 5
+                      , dns
+                      , concurrent-dns-cache
+                      , hspec
