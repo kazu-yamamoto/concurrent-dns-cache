@@ -1,5 +1,16 @@
 {-# LANGUAGE BangPatterns #-}
-module Network.DNS.Cache.Sync where
+
+module Network.DNS.Cache.Sync (
+    ConcVar
+  , newConcVar
+  , wait
+  , waitIncrease
+  , decrease
+  , ActiveVar
+  , newActiveVar
+  , tell
+  , listen
+  ) where
 
 import Control.Applicative ((<$>))
 import Control.Concurrent.STM

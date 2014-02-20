@@ -20,21 +20,18 @@ import Control.Concurrent (threadDelay, forkIO)
 import Control.Concurrent.Async (async, waitAnyCancel)
 import Control.Exception (bracket)
 import Control.Monad (forever, void)
-import Data.Array.Unboxed
 import qualified Data.ByteString.Char8 as BS
-import qualified Data.ByteString.Short as B
-import Data.Hashable (hash)
 import Data.IORef (newIORef, readIORef, atomicModifyIORef', IORef)
 import Data.IP (toHostAddress)
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Time (getCurrentTime, addUTCTime, NominalDiffTime)
 import Network.DNS hiding (lookup)
-import Network.DNS.Cache.PSQ (PSQ)
-import qualified Network.DNS.Cache.PSQ as PSQ
+import Network.DNS.Cache.Cache
 import qualified Network.DNS.Cache.Sync as S
 import Network.DNS.Cache.Types
 import Network.DNS.Cache.Utils
+import Network.DNS.Cache.Value
 import Network.Socket (HostAddress)
 import Prelude hiding (lookup)
 
@@ -52,7 +49,7 @@ data DNSCacheConf = DNSCacheConf {
 data DNSCache = DNSCache {
     cacheSeeds      :: [ResolvSeed]
   , cacheNofServers :: !Int
-  , cacheRef        :: IORef (PSQ Value)
+  , cacheRef        :: CacheRef
   , cacheActiveRef  :: IORef (Map Key S.ActiveVar)
   , cacheConcVar    :: S.ConcVar
   , cacheConcLimit  :: Int
@@ -66,7 +63,7 @@ withDNSCache :: DNSCacheConf -> (DNSCache -> IO a) -> IO a
 withDNSCache conf func = do
     seeds <- mapM makeResolvSeed (resolvConfs conf)
     let n = length seeds
-    cacheref <- newIORef PSQ.empty
+    cacheref <- newCacheRef
     activeref <- newIORef Map.empty
     lvar <- S.newConcVar
     let cache = DNSCache seeds n cacheref activeref lvar maxcon minttl maxttl
@@ -81,14 +78,11 @@ withDNSCache conf func = do
 
 lookupPSQ :: DNSCache -> Domain -> IO (Key, Maybe (Prio, Value))
 lookupPSQ cache dom = do
-    psq <- readIORef cacheref
-    let !mx = PSQ.lookup key psq
+    !mx <- lookupCacheRef key cacheref
     return (key,mx)
   where
     cacheref = cacheRef cache
-    !k = B.toShort dom
-    !h = hash dom
-    !key = Key h k
+    !key = newKey dom
 
 ----------------------------------------------------------------
 
@@ -99,17 +93,6 @@ lookupCache cache dom = do
     case mx of
         Nothing    -> return Nothing
         Just (_,v) -> Just <$> rotate v
-
-rotate :: Value -> IO HostAddress
-rotate (Value a ref) = do
-    let (_, siz) = bounds a
-    j <- atomicModifyIORef' ref $ \i -> (adjust i siz, i)
-    let !addr = a ! j
-    return addr
-
-adjust :: Int -> Int -> Int
-adjust i 0 = i
-adjust i n = let !x = (i + 1) `mod` n in x
 
 ----------------------------------------------------------------
 
@@ -163,22 +146,13 @@ insert _     _   []                   = return $ Left UnexpectedRDATA
 insert cache key addrs@((addr,ttl):_) = do
     !val <- newValue $ map fst addrs
     !tim <- addUTCTime lifeTime <$> getCurrentTime
-    atomicModifyIORef' cacheref $ \q -> (PSQ.insert key tim val q, ())
+    insertCacheRef key tim val cacheref
     return $! Right $ Resolved addr
   where
     minttl = cacheMinTTL cache
     maxttl = cacheMaxTTL cache
     !lifeTime = minttl `max` (maxttl `min` fromIntegral ttl)
     cacheref = cacheRef cache
-
-newValue :: [HostAddress] -> IO Value
-newValue addrs = do
-    ref <- newIORef next
-    return $! Value arr ref
-  where
-    !siz = length addrs
-    !next = adjust 0 siz
-    !arr = listArray (0,siz-1) addrs
 
 ----------------------------------------------------------------
 
@@ -243,8 +217,8 @@ wait cache cond = S.wait lvar cond
   where
     lvar = cacheConcVar cache
 
-prune :: IORef (PSQ Value) -> IO ()
+prune :: CacheRef -> IO ()
 prune cacheref = forever $ do
     threadDelay 10000000
     tim <- getCurrentTime
-    atomicModifyIORef' cacheref $ \p -> (snd (PSQ.atMost tim p), ())
+    pruneCacheRef tim cacheref
