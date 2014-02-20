@@ -120,7 +120,7 @@ lookup cache dom = do
             m <- readIORef activeref
             case Map.lookup key m of
                 Just avar -> S.listen avar
-                Nothing -> do
+                Nothing   -> do
                     avar <- S.newActiveVar
                     atomicModifyIORef' activeref $
                         \mp -> (Map.insert key avar mp, ())
