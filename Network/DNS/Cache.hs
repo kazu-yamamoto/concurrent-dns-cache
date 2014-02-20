@@ -45,13 +45,14 @@ data DNSCacheConf = DNSCacheConf {
   }
 
 data DNSCache = DNSCache {
-    cacheSeeds     :: [ResolvSeed]
-  , cacheRef       :: IORef (PSQ Value)
-  , cacheActiveRef :: IORef (Map Key S.ActiveVar)
-  , cacheConcVar   :: S.ConcVar
-  , cacheConcLimit :: Int
-  , cacheMinTTL    :: NominalDiffTime
-  , cacheMaxTTL    :: NominalDiffTime
+    cacheSeeds      :: [ResolvSeed]
+  , cacheNofServers :: !Int
+  , cacheRef        :: IORef (PSQ Value)
+  , cacheActiveRef  :: IORef (Map Key S.ActiveVar)
+  , cacheConcVar    :: S.ConcVar
+  , cacheConcLimit  :: Int
+  , cacheMinTTL     :: NominalDiffTime
+  , cacheMaxTTL     :: NominalDiffTime
   }
 
 ----------------------------------------------------------------
@@ -59,10 +60,11 @@ data DNSCache = DNSCache {
 withDNSCache :: DNSCacheConf -> (DNSCache -> IO a) -> IO a
 withDNSCache conf func = do
     seeds <- mapM makeResolvSeed (resolvConfs conf)
+    let n = length seeds
     cacheref <- newIORef PSQ.empty
     activeref <- newIORef Map.empty
     lvar <- S.newConcVar
-    let cache = DNSCache seeds cacheref activeref lvar maxcon minttl maxttl
+    let cache = DNSCache seeds n cacheref activeref lvar maxcon minttl maxttl
     void . forkIO $ prune cacheref
     func cache
   where
@@ -162,8 +164,7 @@ resolve cache dom = bracket setup teardown body
   where
     setup = waitIncrease cache
     teardown _ = decrease cache
-    seeds = cacheSeeds cache
-    body _ = concResolv seeds dom
+    body _ = concResolv cache dom
 
 waitIncrease :: DNSCache -> IO ()
 waitIncrease cache = S.waitIncrease lvar lim
@@ -176,21 +177,29 @@ decrease cache = S.decrease lvar
   where
     lvar = cacheConcVar cache
 
-concResolv :: [ResolvSeed] -> Domain -> IO (Either DNSError [(HostAddress,TTL)])
-concResolv seeds dom = withResolvers seeds $ \resolvers -> do
-    let actions = map (\res -> lookupRaw res dom A) resolvers
-    asyncs <- mapM async actions
-    (_,eans) <- waitAnyCancel asyncs
+concResolv :: DNSCache -> Domain -> IO (Either DNSError [(HostAddress,TTL)])
+concResolv cache dom = withResolvers seeds $ \resolvers -> do
+    eans <- resolv n resolvers dom
     return $ case eans of
         Left  err -> Left err
         Right ans -> fromDNSFormat ans getHostAddressandTTL
   where
+    n = cacheNofServers cache
+    seeds = cacheSeeds cache
     isA r = rrtype r == A
     unTag (RD_A ip) = ip
     unTag _         = error "unTag"
     toAddr = toHostAddress . unTag . rdata
     hostAddressandTTL r = (toAddr r, rrttl r)
     getHostAddressandTTL = map hostAddressandTTL . filter isA . answer
+
+resolv :: Int -> [Resolver] -> Domain -> IO (Either DNSError DNSFormat)
+resolv 1 resolvers dom = lookupRaw (head resolvers) dom A
+resolv _ resolvers dom = do
+    asyncs <- mapM async actions
+    snd <$> waitAnyCancel asyncs
+  where
+    actions = map (\res -> lookupRaw res dom A) resolvers
 
 ----------------------------------------------------------------
 
