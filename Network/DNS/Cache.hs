@@ -144,6 +144,8 @@ resolve cache dom = do
             Left  e -> Left <$> return e
             Right v -> Right . Hit <$> rotate v
         Nothing -> do
+            -- If this domain is being resolved by another thread
+            -- let's wait.
             ma <- S.lookupActiveRef key activeref
             case ma of
                 Just avar -> S.listen avar
