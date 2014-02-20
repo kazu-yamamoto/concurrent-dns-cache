@@ -25,6 +25,7 @@ cacheConf = DNSCacheConf {
   , maxConcurrency = maxCon
   , minTTL         = 60
   , maxTTL         = 300
+  , negativeTTL    = 300
   }
 
 main :: IO ()
