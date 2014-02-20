@@ -23,7 +23,6 @@ import Control.Monad (forever, void)
 import Data.Array.Unboxed
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Short as B
-import Data.Char (isDigit)
 import Data.Hashable (hash)
 import Data.IORef (newIORef, readIORef, atomicModifyIORef', IORef)
 import Data.IP (toHostAddress)
@@ -35,6 +34,7 @@ import Network.DNS.Cache.PSQ (PSQ)
 import qualified Network.DNS.Cache.PSQ as PSQ
 import qualified Network.DNS.Cache.Sync as S
 import Network.DNS.Cache.Types
+import Network.DNS.Cache.Utils
 import Network.Socket (HostAddress)
 import Prelude hiding (lookup)
 
@@ -248,13 +248,3 @@ prune cacheref = forever $ do
     threadDelay 10000000
     tim <- getCurrentTime
     atomicModifyIORef' cacheref $ \p -> (snd (PSQ.atMost tim p), ())
-
-----------------------------------------------------------------
-
-isIPAddr :: Domain -> Bool
-isIPAddr hn = length groups == 4 && all ip groups
-  where
-    groups = BS.split '.' hn
-    ip x = BS.length x <= 3
-        && BS.all isDigit x
-        && read (BS.unpack x) <= (255 :: Int)

@@ -14,9 +14,10 @@ Library
   Default-Language:     Haskell2010
   GHC-Options:          -Wall
   Exposed-Modules:      Network.DNS.Cache
-  Other-Modules:        Network.DNS.Cache.Types
-                        Network.DNS.Cache.PSQ
+  Other-Modules:        Network.DNS.Cache.PSQ
                         Network.DNS.Cache.Sync
+                        Network.DNS.Cache.Types
+                        Network.DNS.Cache.Utils
   Build-Depends:        base >= 4 && < 5
                       , array
                       , async
