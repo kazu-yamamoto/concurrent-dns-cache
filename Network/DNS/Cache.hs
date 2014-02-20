@@ -40,6 +40,7 @@ data DNSCacheConf = DNSCacheConf {
     resolvConfs    :: [ResolvConf]
   , maxConcurrency :: Int
   -- | Seconds.
+  , minTTL         :: NominalDiffTime
   , maxTTL         :: NominalDiffTime
   }
 
@@ -49,6 +50,7 @@ data DNSCache = DNSCache {
   , cacheActiveRef :: IORef (Map Key S.ActiveVar)
   , cacheConcVar   :: S.ConcVar
   , cacheConcLimit :: Int
+  , cacheMinTTL    :: NominalDiffTime
   , cacheMaxTTL    :: NominalDiffTime
   }
 
@@ -60,11 +62,12 @@ withDNSCache conf func = do
     cacheref <- newIORef PSQ.empty
     activeref <- newIORef Map.empty
     lvar <- S.newConcVar
-    let cache = DNSCache seeds cacheref activeref lvar maxcon maxttl
+    let cache = DNSCache seeds cacheref activeref lvar maxcon minttl maxttl
     void . forkIO $ prune cacheref
     func cache
   where
     maxcon = maxConcurrency conf
+    minttl = maxTTL conf
     maxttl = maxTTL conf
 
 ----------------------------------------------------------------
@@ -138,7 +141,9 @@ insert cache key addrs@((addr,ttl):_) = do
     atomicModifyIORef' cacheref $ \q -> (PSQ.insert key tim val q, ())
     return $! Right $ Resolved addr
   where
-    !lifeTime = min (cacheMaxTTL cache) (fromIntegral ttl)
+    minttl = cacheMinTTL cache
+    maxttl = cacheMaxTTL cache
+    !lifeTime = minttl `max` (maxttl `min` fromIntegral ttl)
     cacheref = cacheRef cache
 
 newValue :: [HostAddress] -> IO Value

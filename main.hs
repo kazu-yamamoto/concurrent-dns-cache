@@ -23,6 +23,7 @@ cacheConf :: DNSCacheConf
 cacheConf = DNSCacheConf {
     resolvConfs    = confs
   , maxConcurrency = maxCon
+  , minTTL         = 60
   , maxTTL         = 300
   }
 
