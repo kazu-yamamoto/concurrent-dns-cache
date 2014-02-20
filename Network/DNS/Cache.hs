@@ -1,6 +1,8 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE OverloadedStrings #-}
 
+-- | DNS cache to resolve domains concurrently.
+
 module Network.DNS.Cache (
     DNSCacheConf(..)
   , DNSCache
@@ -34,16 +36,24 @@ import Prelude hiding (lookup)
 
 ----------------------------------------------------------------
 
+-- | Configuration for DNS cache.
 data DNSCacheConf = DNSCacheConf {
+  -- | A list of resolvers (cache DNS servers).
+  --   A domain is resolved by the resolvers concurrently.
+  --   The first reply is used regardless of success/failure at this moment
     resolvConfs    :: [ResolvConf]
+  -- | Capability of how many domains can be resolved concurrently
   , maxConcurrency :: Int
-  -- | Seconds.
+  -- | The minimum bound of cache duration for success replies in seconds.
   , minTTL         :: NominalDiffTime
-  -- | Seconds.
+  -- | The maximum bound of cache duration for success replies in seconds.
   , maxTTL         :: NominalDiffTime
+  -- | The cache duration for failure replies in seconds.
   , negativeTTL    :: NominalDiffTime
   }
 
+-- | An abstract data for DNS cache.
+--   Cached domains are expired every 10 seconds according to their TTL.
 data DNSCache = DNSCache {
     cacheSeeds      :: [ResolvSeed]
   , cacheNofServers :: !Int
@@ -58,6 +68,8 @@ data DNSCache = DNSCache {
 
 ----------------------------------------------------------------
 
+-- | A basic function to create DNS cache.
+--   Domains should be resolved in the function of the second argument.
 withDNSCache :: DNSCacheConf -> (DNSCache -> IO a) -> IO a
 withDNSCache conf func = do
     seeds <- mapM makeResolvSeed (resolvConfs conf)

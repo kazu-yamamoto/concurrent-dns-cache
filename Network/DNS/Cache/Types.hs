@@ -33,9 +33,14 @@ instance Show Value where
 
 type TTL = Int
 
-data Result = Hit HostAddress
-            | Resolved HostAddress
-            | Numeric HostAddress
-            deriving (Eq,Show)
+-- | Information of positive result.
+data Result =
+  -- | An address obtained from the cache.
+    Hit HostAddress
+  -- | An address resolved from cache DNS servers.
+  | Resolved HostAddress
+  -- | Specified domain is IP address. So, it is converted into a numeric address.
+  | Numeric HostAddress
+  deriving (Eq,Show)
 
 type Entry = Either DNSError Value
