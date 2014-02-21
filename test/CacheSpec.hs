@@ -2,10 +2,11 @@
 
 module CacheSpec where
 
-import Test.Hspec
+import Control.Concurrent.Async (concurrently)
 import Network.DNS hiding (lookup)
 import Network.DNS.Cache
 import Prelude hiding (lookup)
+import Test.Hspec
 
 cacheConf :: DNSCacheConf
 cacheConf = DNSCacheConf {
@@ -42,3 +43,9 @@ spec = describe "withDnsCache" $ do
         resolveCache cache dom `shouldReturn` Just (Left err)
         lookupCache  cache dom `shouldReturn` Nothing
         lookup       cache dom `shouldReturn` Nothing
+    it "waits for another query for the same domain" $ withDNSCache cacheConf $ \cache -> do
+        let dom = "www.example.com"
+            addr = 2010691677
+        concurrently (resolve cache dom) (resolve cache dom)
+            -- fixme: the order is not decidable
+            `shouldReturn` (Right (Resolved addr),Right (Hit addr))

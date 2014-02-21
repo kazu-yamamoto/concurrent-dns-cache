@@ -158,10 +158,12 @@ resolve cache dom = do
                         Right []    -> insertNegative cache key UnexpectedRDATA
                         Right addrs -> insertPositive cache key addrs
                     S.deleteActiveRef key activeref
-                    S.tell avar res
+                    S.tell avar (toHit res)
                     return res
   where
     activeref = cacheActiveRef cache
+    toHit (Right (Resolved addr)) = Right (Hit addr)
+    toHit x                       = x
 
 insertPositive :: DNSCache -> Key -> [(HostAddress, TTL)]
                -> IO (Either DNSError Result)
