@@ -19,7 +19,7 @@ module Network.DNS.Cache (
   ) where
 
 import Control.Applicative ((<$>))
-import Control.Concurrent (threadDelay, forkIO)
+import Control.Concurrent (threadDelay, forkIO, killThread)
 import Control.Concurrent.Async (async, waitAnyCancel)
 import Control.Exception (bracket)
 import Control.Monad (forever, void)
@@ -78,8 +78,7 @@ withDNSCache conf func = do
     activeref <- S.newActiveRef
     lvar <- S.newConcVar
     let cache = DNSCache seeds n cacheref activeref lvar maxcon minttl maxttl negttl
-    void . forkIO $ prune cacheref
-    func cache
+    bracket (forkIO $ prune cacheref) killThread (const $ func cache)
   where
     maxcon = maxConcurrency conf
     minttl = minTTL conf
@@ -121,7 +120,7 @@ resolveCache :: DNSCache -> Domain -> IO (Maybe (Either DNSError Result))
 resolveCache _ dom
   | isIPAddr dom       = Just . Right . Numeric <$> return (tov4 dom)
   where
-    tov4 = read . BS.unpack
+    tov4 = toHostAddress . read . BS.unpack
 resolveCache cache dom = do
     (_, mx) <- lookupPSQ cache dom
     case mx of
@@ -136,7 +135,7 @@ resolve :: DNSCache -> Domain -> IO (Either DNSError Result)
 resolve _     dom
   | isIPAddr dom            = return $ Right $ Numeric $ tov4 dom
   where
-    tov4 = read . BS.unpack
+    tov4 = toHostAddress . read . BS.unpack
 resolve cache dom = do
     (key,mx) <- lookupPSQ cache dom
     case mx of
