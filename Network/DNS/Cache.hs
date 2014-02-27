@@ -22,7 +22,7 @@ import Control.Applicative ((<$>))
 import Control.Concurrent (threadDelay, forkIO, killThread)
 import Control.Concurrent.Async (async, waitAnyCancel)
 import Control.Exception (bracket)
-import Control.Monad (forever, void)
+import Control.Monad (forever)
 import qualified Data.ByteString.Char8 as BS
 import Data.IP (toHostAddress)
 import Data.Time (getCurrentTime, addUTCTime, NominalDiffTime)
