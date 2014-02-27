@@ -46,6 +46,5 @@ spec = describe "withDnsCache" $ do
     it "waits for another query for the same domain" $ withDNSCache cacheConf $ \cache -> do
         let dom = "www.example.com"
             addr = 2010691677
-        concurrently (resolve cache dom) (resolve cache dom)
-            -- fixme: the order is not decidable
-            `shouldReturn` (Right (Resolved addr),Right (Hit addr))
+        (res1,res2) <- concurrently (resolve cache dom) (resolve cache dom)
+        [res1,res2] `shouldContain` [Right (Resolved addr),Right (Hit addr)]
