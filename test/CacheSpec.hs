@@ -48,3 +48,7 @@ spec = describe "withDnsCache" $ do
             addr = 2010691677
         (res1,res2) <- concurrently (resolve cache dom) (resolve cache dom)
         [res1,res2] `shouldContain` [Right (Resolved addr),Right (Hit addr)]
+    it "just returns IP address" $ withDNSCache cacheConf $ \cache -> do
+        let dom = "192.0.2.1"
+            addr = 16908480
+        resolve      cache dom `shouldReturn` Right (Numeric addr)
