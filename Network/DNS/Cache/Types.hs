@@ -22,11 +22,9 @@ type Hash = Int
 
 data Key = Key !Hash            -- making lookup faster
                !ShortByteString -- avoiding memory fragmentation
-               deriving (Ord,Show)
-
-instance Eq Key where
-    -- Just ensuring the order of evaluation.
-    Key h1 k1 == Key h2 k2 = h1 == h2 && k1 == k2
+               -- Haskell 2010 says: Derived comparisons always
+               -- traverse constructors from left to right.
+               deriving (Eq,Ord,Show)
 
 type Prio = UTCTime
 
