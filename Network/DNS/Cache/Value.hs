@@ -13,7 +13,7 @@ positiveEntry addrs = do
     return $! Right val
   where
     !siz = length addrs
-    !next = adjust 0 siz
+    !next = adjust 0 (siz-1)
     !arr = listArray (0,siz-1) addrs
 
 rotate :: Value -> IO HostAddress
@@ -25,4 +25,4 @@ rotate (Value a ref) = do
 
 adjust :: Int -> Int -> Int
 adjust i 0 = i
-adjust i n = let !x = (i + 1) `mod` n in x
+adjust i n = let !x = (i + 1) `mod` (n + 1) in x
