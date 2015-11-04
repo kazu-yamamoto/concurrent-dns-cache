@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | DNS cache to resolve domains concurrently.
@@ -19,10 +20,12 @@ module Network.DNS.Cache (
   ) where
 
 import Control.Applicative ((<$>))
-import Control.Concurrent (threadDelay, forkIO, killThread)
+import Control.Concurrent.Lifted (threadDelay, fork, killThread)
 import Control.Concurrent.Async (async, waitAnyCancel)
-import Control.Exception (bracket)
+import Control.Exception.Lifted (bracket)
 import Control.Monad (forever)
+import Control.Monad.IO.Class
+import Control.Monad.Trans.Control
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Short as B
 import Data.IP (toHostAddress)
@@ -71,15 +74,16 @@ data DNSCache = DNSCache {
 
 -- | A basic function to create DNS cache.
 --   Domains should be resolved in the function of the second argument.
-withDNSCache :: DNSCacheConf -> (DNSCache -> IO a) -> IO a
+withDNSCache :: (MonadBaseControl IO m, MonadIO m)
+             => DNSCacheConf -> (DNSCache -> m a) -> m a
 withDNSCache conf func = do
-    seeds <- mapM makeResolvSeed (resolvConfs conf)
+    seeds <- mapM (liftIO . makeResolvSeed) (resolvConfs conf)
     let n = length seeds
-    cacheref <- newCacheRef
-    activeref <- S.newActiveRef
-    lvar <- S.newConcVar
+    cacheref <- liftIO newCacheRef
+    activeref <- liftIO S.newActiveRef
+    lvar <- liftIO S.newConcVar
     let cache = DNSCache seeds n cacheref activeref lvar maxcon minttl maxttl negttl
-    bracket (forkIO $ prune cacheref) killThread (const $ func cache)
+    bracket (fork $ liftIO $ prune cacheref) killThread (const $ func cache)
   where
     maxcon = maxConcurrency conf
     minttl = minTTL conf
