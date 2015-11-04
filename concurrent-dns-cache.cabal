@@ -1,5 +1,5 @@
 Name:                   concurrent-dns-cache
-Version:                0.0.1
+Version:                0.1.0
 Author:                 Kazu Yamamoto <kazu@iij.ad.jp>
 Maintainer:             Kazu Yamamoto <kazu@iij.ad.jp>
 License:                BSD3
@@ -28,9 +28,12 @@ Library
                       , dns
                       , hashable
                       , iproute
+                      , lifted-base
+                      , monad-control
                       , network
                       , stm
                       , time
+                      , transformers
 
 Executable main
   Main-Is:              main.hs
@@ -44,9 +47,12 @@ Executable main
                       , dns
                       , hashable
                       , iproute
+                      , lifted-base
+                      , monad-control
                       , network
                       , stm
                       , time
+                      , transformers
 
 Test-Suite spec
   Main-Is:              Spec.hs
