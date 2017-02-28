@@ -24,7 +24,7 @@ spec :: Spec
 spec = describe "withDnsCache" $ do
     it "resolves domains and caches addresses" $ withDNSCache cacheConf $ \cache -> do
         let dom = "www.example.com"
-            addr = 2010691677
+            addr = 584628317
         resolve      cache dom `shouldReturn` Right (Resolved addr)
         resolveCache cache dom `shouldReturn` Just (Right (Hit addr))
         lookupCache  cache dom `shouldReturn` Just addr
@@ -45,7 +45,7 @@ spec = describe "withDnsCache" $ do
         lookup       cache dom `shouldReturn` Nothing
     it "waits for another query for the same domain" $ withDNSCache cacheConf $ \cache -> do
         let dom = "www.example.com"
-            addr = 2010691677
+            addr = 584628317
         (res1,res2) <- concurrently (resolve cache dom) (resolve cache dom)
         [res1,res2] `shouldContain` [Right (Resolved addr),Right (Hit addr)]
     it "just returns IP address" $ withDNSCache cacheConf $ \cache -> do
