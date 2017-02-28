@@ -6,19 +6,16 @@ module Network.DNS.Cache.Cache (
   , lookupCacheRef
   , insertCacheRef
   , pruneCacheRef
-  , newKey
   ) where
 
 import Control.Applicative ((<$>))
-import Data.ByteString (ByteString)
-import qualified Data.ByteString.Short as B
-import Data.Hashable (hash)
 import Data.IORef (newIORef, readIORef, atomicModifyIORef', IORef)
-import Network.DNS.Cache.PSQ (PSQ)
-import qualified Network.DNS.Cache.PSQ as PSQ
+import Data.OrdPSQ (OrdPSQ)
+import qualified Data.OrdPSQ as PSQ
 import Network.DNS.Cache.Types
 
-newtype CacheRef = CacheRef (IORef (PSQ Entry))
+type PSQ = OrdPSQ
+newtype CacheRef = CacheRef (IORef (PSQ Key Prio Entry))
 
 newCacheRef :: IO CacheRef
 newCacheRef = CacheRef <$> newIORef PSQ.empty
@@ -32,10 +29,4 @@ insertCacheRef key tim ent (CacheRef ref) =
 
 pruneCacheRef :: Prio -> CacheRef -> IO ()
 pruneCacheRef tim (CacheRef ref) =
-    atomicModifyIORef' ref $ \p -> (snd (PSQ.atMost tim p), ())
-
-newKey :: ByteString -> Key
-newKey dom = Key h k
-  where
-    !k = B.toShort dom
-    !h = hash dom
+    atomicModifyIORef' ref $ \p -> (snd (PSQ.atMostView tim p), ())

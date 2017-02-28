@@ -1,6 +1,5 @@
 module Network.DNS.Cache.Types (
-    Hash
-  , Key(..)
+    Key
   , Prio
   , Value(..)
   , Entry
@@ -18,14 +17,7 @@ import Data.Time (UTCTime)
 import Network.DNS (Domain, DNSError(..))
 import Network.Socket (HostAddress)
 
-type Hash = Int
-
-data Key = Key !Hash            -- making lookup faster
-               !ShortByteString -- avoiding memory fragmentation
-               -- Haskell 2010 says: Derived comparisons always
-               -- traverse constructors from left to right.
-               deriving (Eq,Ord,Show)
-
+type Key = ShortByteString -- avoiding memory fragmentation
 type Prio = UTCTime
 
 -- fixme: if UArray causes memory fragments,

@@ -15,7 +15,6 @@ Library
   GHC-Options:          -Wall
   Exposed-Modules:      Network.DNS.Cache
   Other-Modules:        Network.DNS.Cache.Cache
-                        Network.DNS.Cache.PSQ
                         Network.DNS.Cache.Sync
                         Network.DNS.Cache.Types
                         Network.DNS.Cache.Utils
@@ -26,9 +25,9 @@ Library
                       , bytestring >= 0.10.4.0
                       , containers
                       , dns
-                      , hashable
                       , iproute
                       , network
+                      , psqueues >= 0.2.3
                       , stm
                       , time
 
@@ -42,9 +41,9 @@ Executable main
                       , bytestring >= 0.10.4.0
                       , containers
                       , dns
-                      , hashable
                       , iproute
                       , network
+                      , psqueues
                       , stm
                       , time
 

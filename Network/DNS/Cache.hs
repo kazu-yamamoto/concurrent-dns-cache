@@ -24,6 +24,7 @@ import Control.Concurrent.Async (async, waitAnyCancel)
 import Control.Exception (bracket)
 import Control.Monad (forever)
 import qualified Data.ByteString.Char8 as BS
+import qualified Data.ByteString.Short as B
 import Data.IP (toHostAddress)
 import Data.Time (getCurrentTime, addUTCTime, NominalDiffTime)
 import Network.DNS hiding (lookup)
@@ -93,7 +94,7 @@ lookupPSQ cache dom = do
     return (key,mx)
   where
     cacheref = cacheRef cache
-    !key = newKey dom
+    !key = B.toShort dom
 
 ----------------------------------------------------------------
 
