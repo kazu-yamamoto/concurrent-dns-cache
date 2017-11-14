@@ -217,7 +217,7 @@ concResolv cache dom = withResolvers seeds $ \resolvers -> do
     eans <- resolv n resolvers dom
     return $ case eans of
         Left  err -> Left err
-        Right ans -> fromDNSMessage ans getHostAddressandTTL
+        Right ans -> fromDNSFormat ans getHostAddressandTTL
   where
     n = cacheNofServers cache
     seeds = cacheSeeds cache
@@ -228,7 +228,7 @@ concResolv cache dom = withResolvers seeds $ \resolvers -> do
     hostAddressandTTL r = (toAddr r, rrttl r)
     getHostAddressandTTL = map hostAddressandTTL . filter isA . answer
 
-resolv :: Int -> [Resolver] -> Domain -> IO (Either DNSError DNSMessage)
+resolv :: Int -> [Resolver] -> Domain -> IO (Either DNSError DNSFormat)
 resolv 1 resolvers dom = lookupRaw (head resolvers) dom A
 resolv _ resolvers dom = do
     asyncs <- mapM async actions
